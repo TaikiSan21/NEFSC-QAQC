@@ -25,7 +25,7 @@ if(!require(rjson)) {
 }
 
 processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE, autosave=TRUE, log=TRUE,
-                           doClipping=FALSE) {
+                           doClipping=FALSE, minHoursApart=2) {
     baseDir <- NA
     if(is.character(x)) {
         if(dir.exists(x)) {
@@ -118,7 +118,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                 x$calibration[i] <- outPathFiles[possCal]
             }
         }
-
+        
         thisName <- paste0(x$projectName[i], '_', x$deviceId[i])
         qOutputFile <- file.path(outPath, 'QAQC_Output', paste0(thisName, '_QAQCData.csv'))
         if(isFALSE(rerun) && 
@@ -144,6 +144,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             calibration=x$calibration[i],
             sampleWindow=tolWindow,
             timeRange=parseQDate(c(x$usableStart[i], x$usableEnd[i])),
+            minHoursApart=minHoursApart,
             name=thisName,
             subPattern=subPattern,
             log=log,
@@ -239,6 +240,7 @@ evaluateDeployment <- function(dir,
                                sensitivity=-174.2,
                                calibration=NA,
                                timeRange=NULL,
+                               minHoursApart=2,
                                name=NULL,
                                subPattern=NULL,
                                outDir=NULL,
@@ -350,7 +352,8 @@ evaluateDeployment <- function(dir,
         warning(msg, immediate.=TRUE)
         return(NULL)
     }
-    
+    # checkHoursApart <- markHoursApart(wavFiles, hours=minHoursApart, ignoreClipping=TRUE)
+    # wavFiles <- wavFiles[checkHoursApart]
     isLog <- grepl('\\.log\\.xml', allFiles)
     logFiles <- allFiles[isLog]
     wavTimes <- wavToTime(wavFiles)
@@ -444,6 +447,7 @@ evaluateDeployment <- function(dir,
                                 plot=FALSE,
                                 calibration=calibration,
                                 sensitivity=sensitivity,
+                                minHoursApart=minHoursApart,
                                 progress=progress
     )
     if(!is.null(name)) {
@@ -486,7 +490,7 @@ evaluateDeployment <- function(dir,
         logQaqc <- processSoundtrapLogs(logFiles)
         wavQaqc <- PAMpal::timeJoin(wavQaqc,
                                     # rename(logQaqc, 'UTC' = 'startUTC')[c('UTC', 'intBatt', 'extBatt', 'temp')],
-                                    rename(logQaqc, 'UTC' = 'fileTime')[c('UTC', 'intBatt', 'extBatt', 'temp')],
+                                    distinct(rename(logQaqc, 'UTC' = 'fileTime')[c('UTC', 'intBatt', 'extBatt', 'temp')]),
                                     interpolate=FALSE)
         # logs may not match first and last wav files bc they can be chopped, correct
         # firstIn <- wavQaqc$UTC[1] >= logQaqc$startUTC & wavQaqc$UTC[1] <= logQaqc$endUTC
@@ -772,6 +776,7 @@ evaluateWavFiles <- function(wavFiles,
                              freqRange=NULL,
                              calibration=NULL,
                              sensitivity=0,
+                             minHoursApart=2,
                              n=NULL,
                              progress=TRUE) {
     if(is.null(n)) {
@@ -788,10 +793,17 @@ evaluateWavFiles <- function(wavFiles,
     }
     
     calibration <- checkCalibration(calibration)
-    
+    checkHoursApart <- markHoursApart(wavFiles, hours=minHoursApart, ignoreClipping=TRUE)
     maxTries <- 3
     # tol <- future.apply::future_lapply(wavFiles, function(x) {
-    tol <- lapply(wavFiles, function(x) {
+    tol <- lapply(seq_along(wavFiles), function(ix) {
+        x <- wavFiles[ix]
+        if(isFALSE(checkHoursApart[ix])) {
+            wavHdr <- tuneR::readWave(x, header=TRUE)
+            nfft <- wavHdr$sample.rate
+            wavLength <- wavHdr$samples / nfft
+            return(list(UTC=wavToTime(x), wavLength=wavLength, file=basename(x)))
+        }
         # implement retry on failed read
         for(i in 1:maxTries) {
             wavClip <- NULL
@@ -978,6 +990,7 @@ plotQAQCTol <- function(x,
     levels <- match.arg(levels)
     plotLevels <- PAMscapes:::getOctaveLevels(levels, freqRange=range(x$frequency))
     x <- x[x$frequency %in% plotLevels$freqs, ]
+    x <- x[!is.na(x$value), ]
     x$frequency <- factor(x$frequency)
     tRange <- range(x$UTC) + c(-1, 1) * tBuffer
     if(is.null(dbRange)) {
@@ -1052,6 +1065,7 @@ wavToTime <- function(x) {
     x <- gsub('_Post-Deployment', '', x)
     x <- gsub('_Pre-Retrieval', '', x)
     x <- gsub('_Post-Retrieval', '', x)
+    x <- gsub('_CH1', '', x)
     format <- c('pamguard', 'pampal', 'soundtrap', 'sm3', 'icListens1', 'icListens2', 'AMAR')
     for(f in format) {
         switch(
@@ -1344,6 +1358,21 @@ addNefscDirs <- function(log, recBase, qaqcBase, tempBase, levels=3, verbose=TRU
         warning('Log data is empty! Check project name spelling if you tried to subset.')
         return(log)
     }
+    if(!dir.exists(recBase)) {
+        warning('Recording base folder "', recBase, '" does not exist', 
+                call.=FALSE)
+        return(log)
+    }
+    if(!dir.exists(qaqcBase)) {
+        warning('QAQC base folder "', qaqcBase, '" does not exist', 
+                call.=FALSE)
+        return(log)
+    }
+    if(!dir.exists(tempBase)) {
+        warning('Temperature base folder "', tempBase, '" does not exist', 
+                call.=FALSE)
+        return(log)
+    }
     pToChange <- sapply(log$projectBaseDir, function(x) {
         is.na(x) || (basename(x) == basename(recBase))
     })
@@ -1353,9 +1382,9 @@ addNefscDirs <- function(log, recBase, qaqcBase, tempBase, levels=3, verbose=TRU
     tToChange <- sapply(log$tempBaseDir, function(x) {
         is.na(x) || (basename(x) == basename(tempBase))
     })
-    log$projectBaseDir[pToChange] <- recBase
-    log$qaqcBaseDir[qToChange] <- qaqcBase
-    log$tempBaseDir[tToChange] <- tempBase
+    # log$projectBaseDir[pToChange] <- recBase
+    # log$qaqcBaseDir[qToChange] <- qaqcBase
+    # log$tempBaseDir[tToChange] <- tempBase
     # check which projects are supposed to have data
     hasData <- log$qaqcStatus != 'NoData'
     # check which do not yet have existing directory
@@ -1363,6 +1392,10 @@ addNefscDirs <- function(log, recBase, qaqcBase, tempBase, levels=3, verbose=TRU
     noProjLog <- sapply(file.path(log$projectBaseDir, log$projectDir), function(x) is.na(x) || !dir.exists(x))
     noQaqcLog <- sapply(file.path(log$qaqcBaseDir, log$qaqcDir), function(x) is.na(x) || !dir.exists(x))
     noTempLog <- sapply(file.path(log$tempBaseDir, log$tempDir), function(x) is.na(x) || !dir.exists(x))
+    
+    # noProjLog <- sapply(file.path(recBase, log$projectDir), function(x) is.na(x) || !dir.exists(x))
+    # noQaqcLog <- sapply(file.path(qaqcBase, log$qaqcDir), function(x) is.na(x) || !dir.exists(x))
+    # noTempLog <- sapply(file.path(tempBase, log$tempDir), function(x) is.na(x) || !dir.exists(x))
     # noQaqcLog <- is.na(log$qaqcDir) | !dir.exists(log$qaqcDir)
     isSoundtrap <- grepl('soundtrap', tolower(log$deviceName))
     projCheck <- hasData & noProjLog
@@ -1370,29 +1403,35 @@ addNefscDirs <- function(log, recBase, qaqcBase, tempBase, levels=3, verbose=TRU
     tempCheck <- hasData & noTempLog & isSoundtrap
     if(any(projCheck)) {
         cat('Searching for recording folders\n')
-        log$projectDir[projCheck] <- mapProjectDir(log$projectName[projCheck], 
-                                                   dir=recBase, 
-                                                   levels=levels,
-                                                   verbose=verbose)
+        projDirs <- mapProjectDir(log$projectName[projCheck], 
+                                  dir=recBase, 
+                                  levels=levels,
+                                  verbose=verbose)
+        log$projectDir[projCheck] <- projDirs
+        log$projectBaseDir[projCheck][!is.na(projDirs)] <- recBase
     } else {
         cat('All project directories already entered!\n')
     }
     if(any(qaqcCheck)) {
         cat('Searching for QAQC output folders\n')
         # levels+1 because adding a new level of org 
-        log$qaqcDir[qaqcCheck] <- mapProjectDir(log$projectName[qaqcCheck], 
-                                                dir=qaqcBase, 
-                                                levels=levels+1, 
-                                                verbose=verbose)
+        qaqcDirs <- mapProjectDir(log$projectName[qaqcCheck], 
+                                  dir=qaqcBase, 
+                                  levels=levels+1, 
+                                  verbose=verbose)
+        log$qaqcDir[qaqcCheck] <- qaqcDirs
+        log$qaqcBaseDir[qaqcCheck][!is.na(qaqcDirs)] <- qaqcBase
     } else {
         cat('All QAQC directores already entered!\n')
     }
     if(any(tempCheck)) {
         cat('Searching for temperature log output folders\n')
-        log$tempDir[tempCheck] <- mapProjectDir(log$projectName[tempCheck],
-                                                dir=tempBase,
-                                                levels=levels, 
-                                                verbose=verbose)
+        tempDirs <- mapProjectDir(log$projectName[tempCheck],
+                                  dir=tempBase,
+                                  levels=levels, 
+                                  verbose=verbose)
+        log$tempDir[tempCheck] <- tempDirs
+        log$tempBaseDir[tempCheck][!is.na(tempDirs)] <- tempBase
     } else {
         cat('All temperature directories already entered!\n')
     }
@@ -1848,6 +1887,7 @@ findCalibration <- function(dir, cal=NULL) {
     }
     possFiles <- files[possCal]
     if(!is.null(cal) &&
+       !is.na(cal) &&
        any(grepl(basename(cal), possFiles))) {
         possFiles <- possFiles[grepl(basename(cal), possFiles)]
     }
@@ -1896,6 +1936,11 @@ saveIssueLog <- function(data, dir) {
         stop('Folder ', dir, ' does not exist')
     }
     outfile <- file.path(dir, 'QAQC_Issues.csv')
+    canWrite <- isFileWritable(outfile)
+    if(isFALSE(canWrite)) {
+        warning('File ', outfile, ' appears to be open, cannot save issues')
+        return(NULL)
+    }
     old <- try(readIssueLog(dir), silent=TRUE)
     # if we didnt find any old data
     if(is.null(old) || inherits(old, 'try-error') || nrow(old) == 0) {
@@ -1960,6 +2005,11 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
     old$qaqcStatus <- checkValidStatus(old$qaqcStatus)
     # if we didnt find any old data
     outfile <- file.path(dir, 'QAQC_Log.csv')
+    canWrite <- isFileWritable(outfile)
+    if(isFALSE(canWrite)) {
+        warning('File ', outfile, ' appears to be open, cannot save log')
+        return(NULL)
+    }
     data$usableStart <- psxTo8601(data$usableStart)
     data$usableEnd <- psxTo8601(data$usableEnd)
     if(is.null(old) || inherits(old, 'try-error') || nrow(old) == 0) {
@@ -1976,10 +2026,14 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
     oldQ <- oldQ[!is.na(oldQ)]
     newP <- unique(data$projectBaseDir)
     newP <- newP[!is.na(newP)]
-    newP <- newP[dir.exists(newP)]
+    if(length(newP) > 0) {
+        newP <- newP[dir.exists(newP)]
+    }
     newQ <- unique(data$qaqcBaseDir)
     newQ <- newQ[!is.na(newQ)]
-    newQ <- newQ[dir.exists(newQ)]
+    if(length(newQ) > 0) {
+        newQ <- newQ[dir.exists(newQ)]
+    }
     old$PROJIX <- paste0(old$projectName, '-', old$deviceId)
     data$PROJIX <- paste0(data$projectName, '-', data$deviceId)
     switch(match.arg(update),
@@ -2073,10 +2127,13 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
                    'new log data (update="none")\n')
            }
     )
+    if(nrow(data) == 0) {
+        data <- NULL
+    }
     data <- bind_rows(old, data)
     data$PROJIX <- NULL
     pDNE <- !dir.exists(oldP)
-    if(any(pDNE)) {
+    if(any(pDNE) && length(newP) != 0) {
         for(p in oldP[pDNE]) {
             newMatch <- basename(newP) == basename(p)
             if(any(newMatch)) {
@@ -2085,7 +2142,7 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
         }
     }
     qDNE <- !dir.exists(oldQ)
-    if(any(qDNE)) {
+    if(any(qDNE) && length(newP) != 0) {
         for(q in oldQ[qDNE]) {
             newMatch <- basename(newQ) == basename(q)
             if(any(newMatch)) {
@@ -2727,7 +2784,11 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
                 showNotification('Use Download button on "Home" page instead.')
                 return()
             }
-            saveQLog(appData$log, dir=INPATH, update='all')
+            trySave <- saveQLog(appData$log, dir=INPATH, update='all')
+            if(is.null(trySave)) {
+                showNotification('Log file appears to be open, cannot save')
+                return()
+            }
             appData$saveLogTime <- Sys.time()
         })
         observeEvent(input$saveIssues, {
@@ -2736,7 +2797,11 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
                 showNotification('Use Download button on "Issues" page instead.')
                 return()
             }
-            saveIssueLog(appData$issue, dir=INPATH)
+            trySave <- saveIssueLog(appData$issue, dir=INPATH)
+            if(is.null(trySave)) {
+                showNotification('Issues file appears to be open, cannot save')
+                return()
+            }
             appData$saveIssueTime <- Sys.time()
         })
         output$logSaveTime <- renderText({
@@ -3363,4 +3428,35 @@ printN <- function(x, n=6, collapse=', ') {
         x <- c(x[1:n], paste0('... (', nItems-n, ' more not shown)'))
     }
     paste0(paste(x, collapse=collapse))
+}
+
+markHoursApart <- function(files, hours=2, ignoreClipping=TRUE) {
+    times <- wavToTime(files)
+    diff <- as.numeric(difftime(times, times[1], units='hours'))
+    group <- floor(diff / hours)
+    first <- c(TRUE, group[2:length(group)] != group[1:(length(group)-1)])
+    # dont mark any files as FALSE if the only files affected would
+    # be because of file clipping time changes - 2nd and last file
+    if(isTRUE(ignoreClipping)) {
+        nDrop <- sum(!first)
+        if(nDrop <= 2) {
+            first[2] <- TRUE
+            first[length(first)] <- TRUE
+        }
+        # first[c(1, length(first))] <- TRUE
+    }
+    first
+}
+
+isFileWritable <- function(file) {
+    if(!file.exists(file)) {
+        return(TRUE)
+    }
+    isOpen <- suppressWarnings(try(file(file, open='r+'), silent=TRUE))
+    if(inherits(isOpen, 'try-error')) {
+        # warning('File ', file, ' appears to already be open, cannot write')
+        return(FALSE)
+    }
+    close(isOpen)
+    TRUE
 }
