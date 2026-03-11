@@ -3460,3 +3460,16 @@ isFileWritable <- function(file) {
     close(isOpen)
     TRUE
 }
+
+makeCloudSecrets <- function() {
+    smartSec <- try(system('gcloud secrets versions access latest --secret="taiki-api-key"', intern=TRUE))
+    if(inherits(smartSec, 'try-error')) {
+        warning('Could not access API key - ask Taiki for HELP!')
+        return(NULL)
+    }
+    list(
+        smart_key = smartSec,
+        pa_data_id = '212707250071436',
+        ins_track_id = '2939021493069708'
+    )
+}
