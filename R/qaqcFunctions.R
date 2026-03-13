@@ -45,6 +45,13 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     }
     x$qaqcStatus <- checkValidStatus(x$qaqcStatus)
     toRun <- x$qaqcStatus %in% c('NoQAQC', 'TimeChecked', 'ClipOnly')
+    noBase <- is.na(x$qaqcBaseDir) | is.na(x$projectBaseDir)
+    if(any(noBase)) {
+        warning(sum(noBase), ' projects (', printN(x$projectName[noBase]),
+                ') are missing project or QAQC base directory, must be remapped',
+                ' with "addNefscDirs"')
+        toRun <- toRun & !noBase
+    }
     if(!any(toRun)) {
         message('No more projects to run QAQC on!')
         return(x)
