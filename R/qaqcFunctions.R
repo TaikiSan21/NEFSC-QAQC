@@ -1803,6 +1803,10 @@ readPaDataSmart <- function(secrets=NULL, token, id) {
 }
 
 readSmartSecrets <- function(x) {
+    if(is.list(x) &&
+       all(c('smart_key', 'pa_data_id', 'ins_track_id') %in% names(x))) {
+        return(x)
+    }
     text <- readLines(x)
     text <- strsplit(text, ':')
     text <- lapply(text, function(t) {
