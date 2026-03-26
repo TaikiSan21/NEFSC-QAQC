@@ -176,7 +176,14 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                 evalWarn <- c(evalWarn, x$projectName[i])
             }
         }
-        if(is.null(tryEvalDep) || inherits(tryEvalDep, 'try-error')) {
+        if(is.null(tryEvalDep)) {
+            warning('Error running project ', x$projectName[i],
+                    ', check log for cause.')
+            ix <- ix +1
+            setTxtProgressBar(pb, value=ix)
+            next
+        }
+        if(inherits(tryEvalDep, 'try-error')) {
             warning('Error running project ', x$projectName[i],
                     ': ', attr(tryEvalDep, 'condition')$message)
             ix <- ix +1
