@@ -2016,7 +2016,6 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
     }
     old <- try(readQLog(dir), silent=TRUE)
     data$qaqcStatus <- checkValidStatus(data$qaqcStatus)
-    old$qaqcStatus <- checkValidStatus(old$qaqcStatus)
     # if we didnt find any old data
     outfile <- file.path(dir, 'QAQC_Log.csv')
     canWrite <- isFileWritable(outfile)
@@ -2030,6 +2029,7 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
         write.csv(data, file=outfile, row.names=FALSE)
         return(invisible(outfile))
     }
+    old$qaqcStatus <- checkValidStatus(old$qaqcStatus)
     # make sure both are chars to combine later
     old$usableStart <- psxTo8601(old$usableStart)
     old$usableEnd <- psxTo8601(old$usableEnd)
