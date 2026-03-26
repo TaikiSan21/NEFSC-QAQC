@@ -1,27 +1,30 @@
-library(tuneR) #misc - readWave only
-library(fftw) #misc - spec images
-library(PAMmisc) #both
-library(ggplot2) #both
-# library(future.apply)
-library(PAMscapes) #octave, tLong, freqs (shiny app mostly)
-library(signal) #misc - interp1 and hanning
-library(lubridate) #both
-library(shiny) #scapes
-library(ggplot2) #both 
-library(dplyr) # both
-library(DT) # neither
-# library(patchwork)
-library(ncdf4)
-library(readxl) # neither, only for NEFSC specific
-library(xml2) #misc, can export function
-library(PAMpal)# just timeJoin
-if(!require(httr)) {
-    install.packages('httr')
-    library(httr)
-}
-if(!require(rjson)) {
-    install.packages('rjson')
-    library(rjson)
+# loading packages for easier install on new machine
+# may need to renv this in the future
+requiredPackages <- c(
+    'tuneR',
+    'fftw',
+    'PAMmisc',
+    'ggplot2',
+    'PAMscapes',
+    'signal',
+    'lubridate',
+    'shiny',
+    'dplyr',
+    'DT',
+    # 'future.apply'
+    # 'patchwork',
+    'ncdf4',
+    'readxl',
+    'xml2',
+    'PAMpal',
+    'httr',
+    'rjson'
+)
+for(p in requiredPackages) {
+    if(!require(p, character.only=TRUE)) {
+        install.packages(p)
+        library(p, character.only = TRUE)
+    }
 }
 
 processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE, autosave=TRUE, log=TRUE,
