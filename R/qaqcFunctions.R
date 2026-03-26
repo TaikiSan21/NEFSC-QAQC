@@ -3178,6 +3178,13 @@ processClippingLog <- function(x, autosave=TRUE, log=TRUE) {
     }
     x$qaqcStatus <- checkValidStatus(x$qaqcStatus)
     toRun <- x$qaqcStatus %in% c('NoQAQC', 'TimeChecked')#, 'ClipOnly')
+    noBase <- is.na(x$qaqcBaseDir) | is.na(x$projectBaseDir)
+    if(any(noBase)) {
+        warning(sum(noBase), ' projects (', printN(x$projectName[noBase]),
+                ') are missing project or QAQC base directory, must be remapped',
+                ' with "addNefscDirs"')
+        toRun <- toRun & !noBase
+    }
     if(!any(toRun)) {
         message('No more projects to run clipping on!')
         return(x)
