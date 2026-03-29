@@ -18,7 +18,8 @@ requiredPackages <- c(
     'xml2',
     'PAMpal',
     'httr',
-    'rjson'
+    'rjson',
+    'audio'
 )
 for(p in requiredPackages) {
     if(!require(p, character.only=TRUE)) {
@@ -394,7 +395,7 @@ evaluateDeployment <- function(dir,
             return(NULL)
         }
         endWav <- which.max(wavTimes)
-        endHeader <- tuneR::readWave(wavFiles[endWav], header=TRUE)
+        endHeader <- fastReadWave(wavFiles[endWav], header=TRUE)
         endTime <- wavTimes[endWav] + endHeader$samples / endHeader$sample.rate
         diffEnd <- as.numeric(difftime(clipEnd, endTime, units='secs'))
         if(abs(diffEnd) < 1) {
@@ -816,7 +817,7 @@ evaluateWavFiles <- function(wavFiles,
     tol <- lapply(seq_along(wavFiles), function(ix) {
         x <- wavFiles[ix]
         if(isFALSE(checkHoursApart[ix])) {
-            wavHdr <- tuneR::readWave(x, header=TRUE)
+            wavHdr <- fastReadWave(x, header=TRUE)
             nfft <- wavHdr$sample.rate
             wavLength <- wavHdr$samples / nfft
             return(list(UTC=wavToTime(x), wavLength=wavLength, file=basename(x)))
@@ -835,7 +836,7 @@ evaluateWavFiles <- function(wavFiles,
                     # nfft <- wavHdr[[1]] # sample rate
                     # wavLength <- wavHdr[[4]] / nfft # sample length/sample rate
                     # BUG in fastread's header=TRUE leaving conns open
-                    wavHdr <- tuneR::readWave(x, header=TRUE)
+                    wavHdr <- fastReadWave(x, header=TRUE)
                     nfft <- wavHdr$sample.rate
                     wavLength <- wavHdr$samples / nfft
                     # fix if wav not long enough
@@ -3069,6 +3070,123 @@ splitWavFile <- function(file, time, outDir=NULL, suffix, writeOOB=FALSE, ext=TR
     c(firstFile, secondFile)
 }
 
+splitWavFast <- function(file, time, outDir=NULL, suffix, writeOOB=FALSE, ext=TRUE, nTry=3, verbose=FALSE) {
+    if(is.null(outDir)) {
+        outDir <- dirname(file)
+    }
+    if(length(suffix) == 1) {
+        suffix <- rep(suffix, 2)
+    }
+    header <- fastReadWave(file, header=TRUE)
+    fileTime <- wavToTime(file)
+    firstLength <- as.numeric(difftime(time, fileTime, units='secs')) * header$sample.rate
+    # how to handle times not present in file
+    if(isTRUE(writeOOB)) {
+        if(firstLength > header$samples) {
+            firstFile <- paste0(gsub('\\.wav$', '', basename(file)), suffix[1], '.wav')
+            firstFile <- file.path(outDir, firstFile)
+            warning('File ', basename(file), ' ends before time ', time, '.',
+                    'Creating a copy named ', basename(firstFile))
+            file.copy(from=file, to=firstFile)
+            return(firstFile)
+        }
+        if(firstLength < 0) {
+            firstFile <- paste0(gsub('\\.wav$', '', basename(file)), suffix[2], '.wav')
+            firstFile <- file.path(outDir, firstFile)
+            warning('File ', basename(file), ' starts after time ', time, '.',
+                    'Creating a copy named ', basename(firstFile))
+            file.copy(from=file, to=firstFile)
+            return(firstFile)
+        }
+    }
+    if(firstLength > header$samples) {
+        warning('File ', basename(file), ' ends before time ', time)
+        return(NULL)
+    }
+    if(firstLength < 0) {
+        warning('File ', basename(file), ' starts after time ', time)
+        return(NULL)
+    }
+    firstFile <- paste0(gsub('\\.wav$', '', basename(file)), suffix[1], '.wav')
+    firstFile <- file.path(outDir, firstFile)
+    
+    firstTry <- 1
+    if(file.exists(firstFile)) {
+        firstHeader <- fastReadWave(firstFile, header=TRUE)
+        # only read/write if existing length mismatch
+        if(firstHeader$samples != firstLength) {
+            warning('File ', basename(firstFile), ' appears to be wrong length, rewriting',
+                    immediate. = TRUE)
+            firstClip <- PAMmisc::fastReadWave(file, from=0, to=firstLength/header$sample.rate)
+        } else {
+            firstTry <- nTry + 1
+        }
+    } else {
+        firstClip <- PAMmisc::fastReadWave(file, from=0, to=firstLength/header$sample.rate)
+    }
+    while(firstTry <= nTry) {
+        if(verbose) {
+            cat('Attempt', firstTry, 'to write first clip...\n')
+        }
+        # firstWrite <- tuneR::writeWave(firstClip, firstFile, extensible=ext)
+        audio::save.wave(firstClip, firstFile)
+        checkFirstSize <- checkWavSize(firstFile)
+        firstSmall <- checkFirstSize < 0.98
+        if(isFALSE(firstSmall)) {
+            break
+        }
+        firstTry <- firstTry + 1
+    }
+    suppressWarnings(rm(firstClip))
+    gc()
+    secondFile <- wavRenamer(basename(file), outTime=time)
+    secondFile <- paste0(gsub('\\.wav', '', secondFile), suffix[2], '.wav')
+    secondFile <- file.path(outDir, secondFile)
+    secondTry <- 1
+    if(file.exists(secondFile)) {
+        secondHeader <- fastReadWave(secondFile, header=TRUE)
+        if(secondHeader$samples != (header$samples - firstLength)) {
+            warning('File ', basename(secondFile), ' appears to be wrong length, rewriting',
+                    immediate. = TRUE)
+            # secondClip <- tuneR::readWave(file, from=firstLength+1, to=header$samples, units='samples', toWaveMC=FALSE)
+            secondClip <- PAMmisc::fastReadWave(file, from=(firstLength)/header$sample.rate)
+        } else {
+            secondTry <- nTry + 1
+        }
+    } else {
+        # secondClip <- tuneR::readWave(file, from=firstLength+1, to=header$samples, units='samples', toWaveMC=FALSE)
+        secondClip <- PAMmisc::fastReadWave(file, from=(firstLength)/header$sample.rate)
+    }
+    while(secondTry <= nTry) {
+        if(verbose) {
+            cat('Attempt', secondTry, 'to write second clip...\n')
+        }
+        # secondwrite <- tuneR::writeWave(secondClip, filename=secondFile, extensible=ext)
+        audio::save.wave(secondClip, secondFile)
+        checkSecondSize <- checkWavSize(secondFile)
+        secondSmall <- checkSecondSize < 0.98
+        if(isFALSE(secondSmall)) {
+            break
+        }
+        secondTry <- secondTry + 1
+    }
+    suppressWarnings(rm(secondClip))
+    gc()
+    checkFirstSize <- checkWavSize(firstFile)
+    firstSmall <- checkFirstSize < 0.98
+    if(firstSmall) {
+        warning('File ', basename(firstFile), ' appears to be much smaller than expected, ',
+                'likely that write failed and file is incomplete.', immediate.=TRUE)
+    }
+    checkSecondSize <- checkWavSize(secondFile)
+    secondSmall <- checkSecondSize < 0.98
+    if(secondSmall) {
+        warning('File ', basename(secondFile), ' appears to be much smaller than expected, ',
+                'likely that write failed and file is incomplete.', immediate.=TRUE)
+    }
+    c(firstFile, secondFile)
+}
+
 clipStartEnd <- function(recDir, start=NULL, end=NULL, outDir=NULL) {
     # default to these two within same folder as recDir
     if(is.null(outDir)) {
@@ -3106,7 +3224,7 @@ clipStartEnd <- function(recDir, start=NULL, end=NULL, outDir=NULL) {
         # do start clip
         if(any(before)) {
             startIx <- max(which(before))
-            beforeWavs <- splitWavFile(recFiles[startIx], time=start, outDir=outDir, 
+            beforeWavs <- splitWavFast(recFiles[startIx], time=start, outDir=outDir, 
                                        suffix=c('_Pre-Deployment', '_Post-Deployment'), ext=FALSE,
                                        writeOOB = TRUE)
             if(is.null(beforeWavs)) {
@@ -3122,7 +3240,7 @@ clipStartEnd <- function(recDir, start=NULL, end=NULL, outDir=NULL) {
         }
         after <- recTimes >= end
         if(!any(after)) {
-            lastHeader <- tuneR::readWave(recFiles[length(recFiles)], header=TRUE)
+            lastHeader <- fastReadWave(recFiles[length(recFiles)], header=TRUE)
             lastEnd <- recTimes[length(recTimes)] + lastHeader$samples / lastHeader$sample.rate
             if(as.numeric(difftime(lastEnd, end, units='secs')) > 0 ) {
                 endIx <- length(recTimes)
@@ -3135,7 +3253,7 @@ clipStartEnd <- function(recDir, start=NULL, end=NULL, outDir=NULL) {
         }
         # do end clip
         if(length(endIx) != 0) {
-            endWavs <- splitWavFile(recFiles[endIx], time=end, outDir=outDir, 
+            endWavs <- splitWavFast(recFiles[endIx], time=end, outDir=outDir, 
                                     suffix=c('_Pre-Retrieval', '_Post-Retrieval'), ext=FALSE,
                                     writeOOB=TRUE)
             if(is.null(endWavs)) {
@@ -3424,7 +3542,7 @@ clipOneFolder <- function(dir, timeRange, name=NULL, excludeDirs, subPattern, ou
     }
     
     endWav <- which.max(wavTimes)
-    endHeader <- tuneR::readWave(wavFiles[endWav], header=TRUE)
+    endHeader <- fastReadWave(wavFiles[endWav], header=TRUE)
     endTime <- wavTimes[endWav] + endHeader$samples / endHeader$sample.rate
     diffEnd <- as.numeric(difftime(clipEnd, endTime, units='secs'))
     if(abs(diffEnd) < 1) {
