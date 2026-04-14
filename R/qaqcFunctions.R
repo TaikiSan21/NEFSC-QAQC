@@ -1387,6 +1387,7 @@ addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, levels
         if(!dir.exists(r)) {
             warning('Recording base folder "', r, '" does not exist', 
                     call.=FALSE)
+            recBase <- recBase[recBase != r]
             next
         }
         noProjLog <- sapply(file.path(log$projectBaseDir, log$projectDir), function(x) is.na(x) || !dir.exists(x))
@@ -1407,6 +1408,7 @@ addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, levels
         if(!dir.exists(q)) {
             warning('QAQC base folder "', q, '" does not exist', 
                     call.=FALSE)
+            qaqcBase <- qaqcBase[qaqcBase != q]
             next
         }
         noQaqcLog <- sapply(file.path(log$qaqcBaseDir, log$qaqcDir), function(x) is.na(x) || !dir.exists(x))
@@ -1423,23 +1425,11 @@ addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, levels
         log$qaqcBaseDir[qaqcCheck][!is.na(qaqcDirs)] <- q
     }
     
-    # if(any(qaqcCheck)) {
-    #     cat('Searching for QAQC output folders\n')
-    #     # levels+1 because adding a new level of org 
-    #     qaqcDirs <- mapProjectDir(log$projectName[qaqcCheck], 
-    #                               dir=qaqcBase, 
-    #                               levels=levels+1, 
-    #                               verbose=verbose)
-    #     log$qaqcDir[qaqcCheck] <- qaqcDirs
-    #     log$qaqcBaseDir[qaqcCheck][!is.na(qaqcDirs)] <- qaqcBase
-    # } else {
-    #     cat('All QAQC directores already entered!\n')
-    # }
-    
     for(t in tempBase) {
         if(!dir.exists(t)) {
             warning('Temperature base folder "', t, '" does not exist', 
                     call.=FALSE)
+            tempBase <- tempBase[tempBase != t]
             next
         }
         noTempLog <- sapply(file.path(log$tempBaseDir, log$tempDir), function(x) is.na(x) || !dir.exists(x))
@@ -1456,40 +1446,36 @@ addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, levels
         log$tempDir[tempCheck] <- tempDirs
         log$tempBaseDir[tempCheck][!is.na(tempDirs)] <- t
     }
-    # if(any(tempCheck)) {
-    #     cat('Searching for temperature log output folders\n')
-    #     tempDirs <- mapProjectDir(log$projectName[tempCheck],
-    #                               dir=tempBase,
-    #                               levels=levels, 
-    #                               verbose=verbose)
-    #     log$tempDir[tempCheck] <- tempDirs
-    #     log$tempBaseDir[tempCheck][!is.na(tempDirs)] <- tempBase
-    # } else {
-    #     cat('All temperature directories already entered!\n')
-    # }
+    
     # check for missing
-    projBad <- is.na(log$projectDir[projCheck])
-    qaqcBad <- is.na(log$qaqcDir[qaqcCheck])
-    tempBad <- is.na(log$tempDir[tempCheck])
-    if(any(projBad)) {
-        warning('Could not find wav folders for ',
-                sum(projBad), 
-                ' projects:\n', 
-                paste0(log$projectName[projCheck][projBad], collapse=', '))
+    if(length(recBase) > 0) {
+        projBad <- is.na(log$projectDir[projCheck])
+        if(any(projBad)) {
+            warning('Could not find wav folders for ',
+                    sum(projBad), 
+                    ' projects:\n', 
+                    paste0(log$projectName[projCheck][projBad], collapse=', '))
+        }
     }
-    if(any(qaqcBad)) {
-        warning('Could not find QAQC folders for ',
-                sum(qaqcBad), 
-                ' projects:\n', 
-                paste0(log$projectName[qaqcCheck][qaqcBad], collapse=', '),
-                '\nThese must be created manually.')
+    if(length(qaqcBase) > 0) {
+        qaqcBad <- is.na(log$qaqcDir[qaqcCheck])
+        if(any(qaqcBad)) {
+            warning('Could not find QAQC folders for ',
+                    sum(qaqcBad), 
+                    ' projects:\n', 
+                    paste0(log$projectName[qaqcCheck][qaqcBad], collapse=', '),
+                    '\nThese must be created manually.')
+        }
     }
-    if(any(tempBad)) {
-        warning('Could not find temperature folders for ',
-                sum(tempBad),
-                ' projects:\n',
-                paste0(log$projectName[tempCheck][tempBad], collapse=', '),
-                '\nThese must be created manually.')
+    if(length(tempBase) > 0) {
+        tempBad <- is.na(log$tempDir[tempCheck])
+        if(any(tempBad)) {
+            warning('Could not find temperature folders for ',
+                    sum(tempBad),
+                    ' projects:\n',
+                    paste0(log$projectName[tempCheck][tempBad], collapse=', '),
+                    '\nThese must be created manually.')
+        }
     }
     # checking for calibration files
     calChecked <- 0
