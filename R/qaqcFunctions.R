@@ -1364,11 +1364,14 @@ parseDeviceId <- function(x) {
     x
 }
 
-addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, levels=3, verbose=TRUE) {
+addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, teleBase=NULL, levels=3, verbose=TRUE) {
     # only try to add dirs if they are missing or if base is same
     # e.g. don't try if new BOTTOM_MOUNTED but old was not
     # fix bad windows slash
-    dirCols <- c('projectBaseDir', 'projectDir', 'qaqcBaseDir', 'qaqcDir', 'tempBaseDir', 'tempDir')
+    dirCols <- c('projectBaseDir', 'projectDir', 
+                 'qaqcBaseDir', 'qaqcDir', 
+                 'tempBaseDir', 'tempDir',
+                 'teleBaseDir', 'teleDir')
     for(d in dirCols) {
         log[[d]] <- gsub('\\\\', '/', log[[d]])
     }
@@ -1380,9 +1383,6 @@ addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, levels
     # check which projects are supposed to have data
     hasData <- log$qaqcStatus != 'NoData'
     # check which do not yet have existing directory
-    # noProjLog <- is.na(log$projectDir) | !dir.exists(log$projectDir)
-    # noProjLog <- sapply(file.path(log$projectBaseDir, log$projectDir), function(x) is.na(x) || !dir.exists(x))
-    # projCheck <- hasData & noProjLog
     for(r in recBase) {
         if(!dir.exists(r)) {
             warning('Recording base folder "', r, '" does not exist', 
@@ -1447,6 +1447,27 @@ addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, levels
         log$tempBaseDir[tempCheck][!is.na(tempDirs)] <- t
     }
     
+    for(t in teleBase) {
+        if(!dir.exists(t)) {
+            warning('Telemetry base folder "', t, '" does not exist', 
+                    call.=FALSE)
+            teleBase <- teleBase[teleBase != t]
+            next
+        }
+        noTeleLog <- sapply(file.path(log$teleBaseDir, log$teleDir), function(x) is.na(x) || !dir.exists(x))
+        teleCheck <- hasData & noTeleLog
+        if(!any(teleCheck)) {
+            break
+        }
+        cat('Searching for telemetry output folders\n')
+        teleDirs <- mapProjectDir(log$projectName[teleCheck],
+                                  dir=t,
+                                  levels=levels, 
+                                  verbose=verbose)
+        log$teleDir[teleCheck] <- teleDirs
+        log$teleBaseDir[teleCheck][!is.na(teleDirs)] <- t
+    }
+    
     # check for missing
     if(length(recBase) > 0) {
         projBad <- is.na(log$projectDir[projCheck])
@@ -1474,6 +1495,16 @@ addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, levels
                     sum(tempBad),
                     ' projects:\n',
                     paste0(log$projectName[tempCheck][tempBad], collapse=', '),
+                    '\nThese must be created manually.')
+        }
+    }
+    if(length(teleBase) > 0) {
+        teleBad <- is.na(log$teleDir[teleCheck])
+        if(any(teleBad)) {
+            warning('Could not find telemetry folders for ',
+                    sum(teleBad),
+                    ' projects:\n',
+                    paste0(log$projectName[teleCheck][teleBad], collapse=', '),
                     '\nThese must be created manually.')
         }
     }
@@ -1760,7 +1791,9 @@ nefscSmartToLog <- function(secrets) {
         qaqcBaseDir = NA,
         qaqcDir = NA,
         tempBaseDir = NA,
-        tempDir = NA
+        tempDir = NA,
+        teleBaseDir = NA,
+        teleDir = NA
     )
     log
 }
@@ -2003,8 +2036,14 @@ readQLog <- function(x) {
     if(!isQaqcLog(data)) {
         stop(x, ' does not appear to be a QAQC log file')
     }
-    dirCols <- c('projectBaseDir', 'projectDir', 'qaqcBaseDir', 'qaqcDir', 'tempBaseDir', 'tempDir')
+    dirCols <- c('projectBaseDir', 'projectDir', 
+                 'qaqcBaseDir', 'qaqcDir', 
+                 'tempBaseDir', 'tempDir',
+                 'teleBaseDir', 'teleDir')
     for(d in dirCols) {
+        if(!d %in% names(data)) {
+            data[[d]] <- NA
+        }
         data[[d]] <- gsub('\\\\', '/', data[[d]])
     }
     data$deviceId <- as.character(data$deviceId)
@@ -2066,7 +2105,7 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
                # that get handled with addNefscDir
                updateCols <- c('deviceName', 'deviceId', 'sensitivity',
                                'calibration', 'usableStart', 'usableEnd')
-               updateDirs <- c('qaqcDir', 'projectDir', 'tempDir')
+               updateDirs <- c('qaqcDir', 'projectDir', 'tempDir', 'teleDir')
                # check if status is further along the line, others are NA
                projUpdated <- character(0)
                for(proj in oldInNew) {
@@ -2099,6 +2138,10 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
                            'tempDir' = {
                                oldDir <- file.path(old$tempBaseDir[oldIx], old$tempDir[oldIx])
                                newDir <- file.path(data$tempBaseDir[newIx], data$tempDir[newIx])
+                           },
+                           'teleDir' = {
+                               oldDir <- file.path(old$teleBaseDir[oldIx], old$teleDir[oldIx])
+                               newDir <- file.path(data$teleBaseDir[newIx], data$teleDir[newIx])
                            }
                        )
                        if(dir.exists(oldDir)) {
@@ -2116,6 +2159,9 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
                                },
                                'tempDir' = {
                                    old$tempBaseDir[oldIx] <- data$tempBaseDir[newIx]
+                               },
+                               'teleDir' = {
+                                   old$teleBaseDir[oldIx] <- data$teleBaseDir[newIx]
                                }
                            )
                            projUpdated <- c(projUpdated, proj)
