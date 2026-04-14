@@ -1364,7 +1364,7 @@ parseDeviceId <- function(x) {
     x
 }
 
-addNefscDirs <- function(log, recBase, qaqcBase, tempBase, levels=3, verbose=TRUE) {
+addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, levels=3, verbose=TRUE) {
     # only try to add dirs if they are missing or if base is same
     # e.g. don't try if new BOTTOM_MOUNTED but old was not
     # fix bad windows slash
@@ -1376,83 +1376,98 @@ addNefscDirs <- function(log, recBase, qaqcBase, tempBase, levels=3, verbose=TRU
         warning('Log data is empty! Check project name spelling if you tried to subset.')
         return(log)
     }
-    if(!dir.exists(recBase)) {
-        warning('Recording base folder "', recBase, '" does not exist', 
-                call.=FALSE)
-        return(log)
-    }
-    if(!dir.exists(qaqcBase)) {
-        warning('QAQC base folder "', qaqcBase, '" does not exist', 
-                call.=FALSE)
-        return(log)
-    }
-    if(!dir.exists(tempBase)) {
-        warning('Temperature base folder "', tempBase, '" does not exist', 
-                call.=FALSE)
-        return(log)
-    }
-    pToChange <- sapply(log$projectBaseDir, function(x) {
-        is.na(x) || (basename(x) == basename(recBase))
-    })
-    qToChange <- sapply(log$qaqcBaseDir, function(x) {
-        is.na(x) || (basename(x) == basename(qaqcBase))
-    })
-    tToChange <- sapply(log$tempBaseDir, function(x) {
-        is.na(x) || (basename(x) == basename(tempBase))
-    })
-    # log$projectBaseDir[pToChange] <- recBase
-    # log$qaqcBaseDir[qToChange] <- qaqcBase
-    # log$tempBaseDir[tToChange] <- tempBase
+    
     # check which projects are supposed to have data
     hasData <- log$qaqcStatus != 'NoData'
     # check which do not yet have existing directory
     # noProjLog <- is.na(log$projectDir) | !dir.exists(log$projectDir)
-    noProjLog <- sapply(file.path(log$projectBaseDir, log$projectDir), function(x) is.na(x) || !dir.exists(x))
-    noQaqcLog <- sapply(file.path(log$qaqcBaseDir, log$qaqcDir), function(x) is.na(x) || !dir.exists(x))
-    noTempLog <- sapply(file.path(log$tempBaseDir, log$tempDir), function(x) is.na(x) || !dir.exists(x))
-    
-    # noProjLog <- sapply(file.path(recBase, log$projectDir), function(x) is.na(x) || !dir.exists(x))
-    # noQaqcLog <- sapply(file.path(qaqcBase, log$qaqcDir), function(x) is.na(x) || !dir.exists(x))
-    # noTempLog <- sapply(file.path(tempBase, log$tempDir), function(x) is.na(x) || !dir.exists(x))
-    # noQaqcLog <- is.na(log$qaqcDir) | !dir.exists(log$qaqcDir)
-    isSoundtrap <- grepl('soundtrap', tolower(log$deviceName))
-    projCheck <- hasData & noProjLog
-    qaqcCheck <- hasData & noQaqcLog
-    tempCheck <- hasData & noTempLog & isSoundtrap
-    if(any(projCheck)) {
+    # noProjLog <- sapply(file.path(log$projectBaseDir, log$projectDir), function(x) is.na(x) || !dir.exists(x))
+    # projCheck <- hasData & noProjLog
+    for(r in recBase) {
+        if(!dir.exists(r)) {
+            warning('Recording base folder "', r, '" does not exist', 
+                    call.=FALSE)
+            next
+        }
+        noProjLog <- sapply(file.path(log$projectBaseDir, log$projectDir), function(x) is.na(x) || !dir.exists(x))
+        projCheck <- hasData & noProjLog
+        if(!any(projCheck)) {
+            break
+        }
         cat('Searching for recording folders\n')
         projDirs <- mapProjectDir(log$projectName[projCheck], 
-                                  dir=recBase, 
+                                  dir=r, 
                                   levels=levels,
                                   verbose=verbose)
         log$projectDir[projCheck] <- projDirs
-        log$projectBaseDir[projCheck][!is.na(projDirs)] <- recBase
-    } else {
-        cat('All project directories already entered!\n')
+        log$projectBaseDir[projCheck][!is.na(projDirs)] <- r
     }
-    if(any(qaqcCheck)) {
+    
+    for(q in qaqcBase) {
+        if(!dir.exists(q)) {
+            warning('QAQC base folder "', q, '" does not exist', 
+                    call.=FALSE)
+            next
+        }
+        noQaqcLog <- sapply(file.path(log$qaqcBaseDir, log$qaqcDir), function(x) is.na(x) || !dir.exists(x))
+        qaqcCheck <- hasData & noQaqcLog
+        if(!any(qaqcCheck)) {
+            break
+        }
         cat('Searching for QAQC output folders\n')
-        # levels+1 because adding a new level of org 
         qaqcDirs <- mapProjectDir(log$projectName[qaqcCheck], 
-                                  dir=qaqcBase, 
+                                  dir=q, 
                                   levels=levels+1, 
                                   verbose=verbose)
         log$qaqcDir[qaqcCheck] <- qaqcDirs
-        log$qaqcBaseDir[qaqcCheck][!is.na(qaqcDirs)] <- qaqcBase
-    } else {
-        cat('All QAQC directores already entered!\n')
+        log$qaqcBaseDir[qaqcCheck][!is.na(qaqcDirs)] <- q
     }
-    if(any(tempCheck)) {
+    
+    # if(any(qaqcCheck)) {
+    #     cat('Searching for QAQC output folders\n')
+    #     # levels+1 because adding a new level of org 
+    #     qaqcDirs <- mapProjectDir(log$projectName[qaqcCheck], 
+    #                               dir=qaqcBase, 
+    #                               levels=levels+1, 
+    #                               verbose=verbose)
+    #     log$qaqcDir[qaqcCheck] <- qaqcDirs
+    #     log$qaqcBaseDir[qaqcCheck][!is.na(qaqcDirs)] <- qaqcBase
+    # } else {
+    #     cat('All QAQC directores already entered!\n')
+    # }
+    
+    for(t in tempBase) {
+        if(!dir.exists(t)) {
+            warning('Temperature base folder "', t, '" does not exist', 
+                    call.=FALSE)
+            next
+        }
+        noTempLog <- sapply(file.path(log$tempBaseDir, log$tempDir), function(x) is.na(x) || !dir.exists(x))
+        isSoundtrap <- grepl('soundtrap', tolower(log$deviceName))
+        tempCheck <- hasData & noTempLog & isSoundtrap
+        if(!any(tempCheck)) {
+            break
+        }
         cat('Searching for temperature log output folders\n')
         tempDirs <- mapProjectDir(log$projectName[tempCheck],
-                                  dir=tempBase,
+                                  dir=t,
                                   levels=levels, 
                                   verbose=verbose)
         log$tempDir[tempCheck] <- tempDirs
-        log$tempBaseDir[tempCheck][!is.na(tempDirs)] <- tempBase
-    } else {
-        cat('All temperature directories already entered!\n')
+        log$tempBaseDir[tempCheck][!is.na(tempDirs)] <- t
     }
+    # if(any(tempCheck)) {
+    #     cat('Searching for temperature log output folders\n')
+    #     tempDirs <- mapProjectDir(log$projectName[tempCheck],
+    #                               dir=tempBase,
+    #                               levels=levels, 
+    #                               verbose=verbose)
+    #     log$tempDir[tempCheck] <- tempDirs
+    #     log$tempBaseDir[tempCheck][!is.na(tempDirs)] <- tempBase
+    # } else {
+    #     cat('All temperature directories already entered!\n')
+    # }
+    # check for missing
     projBad <- is.na(log$projectDir[projCheck])
     qaqcBad <- is.na(log$qaqcDir[qaqcCheck])
     tempBad <- is.na(log$tempDir[tempCheck])
