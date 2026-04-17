@@ -29,7 +29,7 @@ for(p in requiredPackages) {
 }
 
 processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE, autosave=TRUE, log=TRUE,
-                           doClipping=FALSE, minHoursApart=2) {
+                           doClipping=FALSE, minHoursApart=2, vdat=NULL) {
     baseDir <- NA
     if(is.character(x)) {
         if(dir.exists(x)) {
@@ -41,6 +41,9 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
         }
         if(isTRUE(autosave)) {
             on.exit(saveQLog(x, baseDir, update = 'new'))
+        }
+        if(is.null(vdat)) {
+            vdat <- file.path(baseDir, 'vdat.exe')
         }
         x <- readQLog(x)
     }
@@ -191,21 +194,79 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             setTxtProgressBar(pb, value=ix)
             next
         }
+        # ST Temperature parts ####
         # only try temperature stuff if its an ST
         isSoundtrap <- grepl('soundtrap', tolower(x$deviceName[i]))
+        hasTemp <- !is.na(x$tempDir[i]) &&
+            dir.exists(file.path(x$tempBaseDir[i], x$tempDir[i]))
+        hasDeployments <- !is.na(x$deploymentDate[i]) && !is.na(x$recoveryDate[i])
+        if(hasDeployments) {
+            deploymentDate <- as.Date(x$deploymentDate[i], format = "%Y-%m-%d")
+            thirdDay <- deploymentDate + 2 # to allow of logger acclimating
+            recoveryDate <-  as.Date(x$recoveryDate[i], format = "%Y-%m-%d")
+            secondLastDay <- recoveryDate - 1
+        }
         if(isSoundtrap) {
-            if(is.na(x$tempDir[i]) ||
-               !dir.exists(file.path(x$tempBaseDir[i], x$tempDir[i]))) {
-                warning('No valid temperature directory provided, separate temperature log',
+            if(!hasTemp) {
+                warning('No valid temperature directory provided, separate Soundtrap temperature log',
                         ' will not be saved for project ', thisName)
             } else if('temp' %in% names(tryEvalDep) &&
                       !all(is.na(tryEvalDep$temp))) {
                 thisTempDir <- file.path(x$tempBaseDir[i], x$tempDir[i])
                 thisTempFile <- paste0(thisName, '_ST_Internal_temp.csv')
                 thisTempData <- distinct(tryEvalDep[c('UTC', 'temp')])
-                thisTempData$UTC <- format(thisTempData$UTC, format='%m-%d-%Y_%H:%M:%S')
                 names(thisTempData) <- c('Datetime_UTC', 'Internal_temp_C')
+                thisTempData$Datetime_UTC <- format(thisTempData$Datetime_UTC, format='%m-%d-%Y_%H:%M:%S')
+                if(hasDeployments) {
+                    filtTempData <- filterTempData(thisTempData, 
+                                                   datecol='Datetime_UTC',
+                                                   start=thirdDay, end=secondLastDay)
+                    if(nrow(filtTempData) == 0) {
+                        warning('No Soundtrap temperature data remaining after date filtering ',
+                                ' for project ', thisName)
+                    } else {
+                        filtTempFile <- paste0(thisName, 'Filtered_ST_Temp_data.csv')
+                        write.csv(filtTempData, file=file.path(thisTempDir, filtTempFile), row.names=FALSE)
+                    }
+                }
                 write.csv(thisTempData, file=file.path(thisTempDir, thisTempFile), row.names=FALSE)
+            }
+        }
+        # Vemco Temperatuer ####
+        hasVemco <- !is.na(x$teleDir[i]) && 
+            dir.exists(file.path(x$teleBaseDir[i], x$teleDir[i]))
+        if(!hasVemco) {
+            warning('No valid VEMCO directory provided, separate VEMCO temperature file',
+                    ' will not be saved for project ', thisName)
+        }
+        if(hasVemco && !hasTemp) {
+            warning('No valid temperature directory provided, cannot create VEMCO temperature',
+                    ' file for project ', thisName)
+        }
+        if(hasVemco && hasTemp && !hasDeployments) {
+            warning('Deployment or recording time is missing, cannot filter VEMCO temperature',
+                    ' file for project ', thisName)
+        }
+        if(hasVemco && hasTemp && hasDeployments) {
+            vemDir <- file.path(x$teleBaseDir[i], x$teleDir[i])
+            vemcoData <- readVemcoFolder(vemDir, vdat_exe=vdat)
+            if(is.null(vemcoData)) {
+                warning('Could not read VEMCO data from directory, VEMCO CSV file',
+                        ' will not be saved for project ', thisName)
+            }
+            if(!is.null(vemcoData)) {
+                thisTempDir <- file.path(x$tempBaseDir[i], x$tempDir[i])
+                thisTempFile <- paste0(thisName, '_Filtered_VEMCO_Temp_data.csv')
+                thisTempData <- distinct(vemcoData)
+                thisTempData <- filterTempData(thisTempData, dateCol='Time_UTC', 
+                                               start=thirdDay, end=secondLastDay)
+                if(nrow(thisTempData) == 0) {
+                    warning('No VEMCO temperature data remaining after date filtering ',
+                            'for project ', thisName)
+                } else {
+                    thisTempData$Time_UTC <- format(thisTempData$Time_UTC, format='%Y-%m-%d %H:%M:%S')
+                    write.csv(thisTempData, file=file.path(thisTempDir, thisTempFile), row.names=FALSE)
+                }
             }
         }
         x$qaqcStatus[i] <- 'QAQCRun'
@@ -1793,7 +1854,9 @@ nefscSmartToLog <- function(secrets) {
         tempBaseDir = NA,
         tempDir = NA,
         teleBaseDir = NA,
-        teleDir = NA
+        teleDir = NA,
+        deploymentDate = status$deploymentDate,
+        recoveryDate = status$recoveryDate
     )
     log
 }
@@ -1821,7 +1884,9 @@ readPaDataSmart <- function(secrets=NULL, token, id) {
         usableStartTime = status[['Usable Data Timeline - Start Time']],
         usableEndTime = status[['Usable Data Timeline - End Time']],
         usableStartDate = status[['Usable Data Timeline - Start Date']],
-        usableEndDate = status[['Usable Data Timeline - End Date']]
+        usableEndDate = status[['Usable Data Timeline - End Date']],
+        deploymentDate = status[['Deployment Timeline - Start']],
+        recoveryDate = status[['Deployment Timeline - End']]
     )
     hasTime <- !is.na(status$usableStartTime) &
         !is.na(status$usableEndTime) &
@@ -2104,7 +2169,8 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
                # possible columns we want to update - others are directory folders
                # that get handled with addNefscDir
                updateCols <- c('deviceName', 'deviceId', 'sensitivity',
-                               'calibration', 'usableStart', 'usableEnd')
+                               'calibration', 'usableStart', 'usableEnd',
+                               'deploymentDate', 'recoveryDate')
                updateDirs <- c('qaqcDir', 'projectDir', 'tempDir', 'teleDir')
                # check if status is further along the line, others are NA
                projUpdated <- character(0)
@@ -3665,4 +3731,161 @@ makeCloudSecrets <- function() {
         pa_data_id = '212707250071436',
         ins_track_id = '2939021493069708'
     )
+}
+
+# Adapted from original code by Chris Holbrook
+vrl_to_csv <- function(vrl_file = NULL, 
+                       out_dir = NULL, 
+                       vdat_path = "vdat.exe") {
+    # check to make sure vdat is installed and accessible
+    vdat_ok <- suppressWarnings(system2(path.expand(vdat_path), args = "--version", stdout = FALSE, stderr = FALSE))
+    # if(vdat_ok == 127) {
+    if(vdat_ok != 0) {
+        stop("vdat not found. Check path to vdat and make sure vdat software is installed and accessible to system")
+    }
+    #set out_dir to source file location if not given
+    if(is.null(out_dir)) {
+        out_dir <- dirname(vrl_file)
+    }
+    
+    out_dir <- normalizePath(out_dir)
+    
+    #output path(s) and file name(s)
+    out_file <- file.path(out_dir, 
+                          gsub(".vrl|.VRL|.Vrl",".csv", basename(vrl_file)))
+    if(file.exists(out_file)) {
+        unlink(out_file)
+    }
+    #loop through files so that progress can be displayed
+    
+    # prepare vdat command
+    cmd <- path.expand(file.path(vdat_path))
+    
+    # prepare arguments to command line call
+    #args <- c("convert", "--format=csv.fathom", "--timec=default", paste("--output=", shQuote(out_dir)), shQuote(vrl_file))
+    
+    ftp <- data.frame(vrl_file = vrl_file,
+                      output_file = out_file,
+                      out_dir = out_dir,
+                      vdat_cmd = cmd,
+                      status = NA_real_,
+                      stdout = NA_character_,
+                      stderr = NA_character_)
+    
+    # loop through and extract all files
+    for(i in 1:nrow(ftp)) {
+        # start loop here- call each row of ftp table in order and collect output
+        args <- c("convert", 
+                  "--format=csv.fathom", 
+                  "--timec=default", 
+                  paste0("--output=", ftp[["out_dir"]][i]), ftp[["vrl_file"]][i])
+        
+        msg <- sys::exec_internal(cmd = cmd,
+                                  args = args)
+        ftp$status[i] <- msg$status
+        ftp$stdout[i] <- rawToChar(msg$stdout)
+        ftp$stderr[i] <- rawToChar(msg$stderr)
+    }
+    badStatus <- ftp$status != 0
+    if(any(badStatus)) {
+        warning('Conversion of file(s) ', 
+                paste0(basename(ftp$vrl_file[badStatus]), collapse=','),
+                ' failed with STDOUT: ', 
+                paste0(basename(ftp$stdout[badStatus]), collapse=','),
+                ' and STDERR: ',
+                paste0(basename(ftp$stderr[badStatus]), collapse=',')
+        )
+    }
+    ftp$file_size <- file.size(ftp$output_file)
+    ftp
+}
+
+readVrlCsv <- function(x, type='TEMP', name='Temperature_C') {
+    result <- read.csv(x, skip=1, header=TRUE, stringsAsFactors = FALSE)
+    typeColumn <- which(names(result) == 'RECORD.TYPE')
+    if(length(typeColumn) == 0) {
+        warning('File ', basename(x), ' does not appear to be a full VRL CSV offload')
+        return(NULL)
+    }
+    timeColumn <- typeColumn + 1
+    valueColumn <- typeColumn + 7
+    result <- result[c(typeColumn, timeColumn, valueColumn)] 
+    names(result) <- c('Parameter', 'Time_UTC', name)
+    result <- filter(result, Parameter == type)
+    if(nrow(result) == 0) {
+        warning('File ', basename(x), ' did not contain any ', type, ,' data')
+        return(NULL)
+    }
+    result$Parameter <- NULL
+    result[[name]] <- as.numeric(result[[name]])
+    result <- mutate(result,
+                     Time_UTC = ymd_hms(Time_UTC),
+                     Date = date(Time_UTC),
+                     Month = month(Time_UTC),
+                     Year = year(Time_UTC)
+    )
+    # result$Time_UTC <- ymd_hms(result$Time_UTC)
+    result
+}
+
+# from telem folder, convert vrl if needed then read CSV
+readVemcoFolder <- function(dir, vdat_exe, verbose=TRUE) {
+    vrlFiles <- list.files(dir, full.names=TRUE, pattern='vrl$')
+    vrlFiles <- vrlFiles[!grepl('RLD', basename(vrlFiles))]
+    vrlFiles <- vrlFiles[!grepl('Duplicates', basename(vrlFiles))]
+    
+    vdatFiles <- list.files(dir, full.names=TRUE, pattern='vdat$')
+    # no csv & vdat - idk if can
+    # vrl - make new csv
+    # vdat & csv - use csv
+    
+    # This shouldnt happen
+    if(length(vrlFiles) > 1) {
+        warning('More than 1 candidate VRL file (',
+                paste0(basename(vrlFiles), collapse=','),
+                ') in ', dir)
+        return(NULL)
+    }
+    csvFiles <- list.files(dir, full.names=TRUE, pattern='csv$')
+    csvFiles <- csvFiles[grepl('^VR', basename(csvFiles))]
+    csvFiles <- csvFiles[!grepl('ReceiverLogs', basename(csvFiles))]
+    # try seeing if theres just 1 CSV and it is correct (not null read)
+    if(length(csvFiles) == 1) {
+        result <- suppressWarnings(readVrlCsv(csvFiles))
+        if(!is.null(result)) {
+            return(result)
+        }
+    }
+    # Make new CSV - deletes old first
+    if(length(vrlFiles) == 1) {
+        if(verbose) {
+            cat('Converting VRL to CSV...\n')
+        }
+        vrl_to_csv(vrlFiles, vdat_path=vdat_exe)
+        csvFiles <- list.files(dir, full.names=TRUE, pattern='csv$')
+        csvFiles <- csvFiles[grepl('^VR', basename(csvFiles))]
+        csvFiles <- csvFiles[!grepl('ReceiverLogs', basename(csvFiles))]
+    }
+    if(length(csvFiles) == 0) {
+        warning('No CSV files or succesfully converted VRL files in ', dir)
+        return(NULL)
+    }
+    if(length(csvFiles) > 1) {
+        warning('More than 1 candidate CSV file (',
+                paste0(basename(csvFiles), collapse=','),
+                ') in ', dir)
+        return(NULL)
+    }
+    result <- readVrlCsv(csvFiles)
+    if(is.null(result)) {
+        warning('Problem reading temperature from VEMCO folder ', dir)
+    }
+    result
+}
+
+filterTempData <- function(x, dateCol, format='%Y-%m-%d', start, end) {
+    x$DATEFILTER <- as.Date(x[[dateCol]], format=format)
+    x <- filter(x, DATEFILTER >= start, DATEFILTER <= end)
+    x$DATEFILTER <- NULL
+    x
 }
