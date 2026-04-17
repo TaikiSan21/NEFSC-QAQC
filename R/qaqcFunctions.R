@@ -1800,8 +1800,8 @@ nefscMondayToLog <- function(dataUpload, recPerf=NULL, qaqcSheet=NULL) {
     log
 }
 
-nefscSmartToLog <- function(secrets) {
-    status <- readPaDataSmart(secrets)
+nefscSmartToLog <- function(secrets, loadAll=FALSE) {
+    status <- readPaDataSmart(secrets, loadAll=loadAll)
     recorder <- readInsTrackSmart(secrets)
     status <- left_join(status, recorder, by='deviceId')
     noSens <- is.na(status$sensitivity)
@@ -1861,7 +1861,7 @@ nefscSmartToLog <- function(secrets) {
     log
 }
 
-readPaDataSmart <- function(secrets=NULL, token, id) {
+readPaDataSmart <- function(secrets=NULL, token, id, loadAll=FALSE) {
     if(!is.null(secrets)) {
         secrets <- readSmartSecrets(secrets)
         token <- secrets$smart_key
@@ -1871,7 +1871,9 @@ readPaDataSmart <- function(secrets=NULL, token, id) {
     base <- 'https://api.smartsheetgov.com/2.0/sheets'
     apiData <- GET(url=paste0(base, '/', id), config=header)
     status <- smartToDf(apiData)
-    status <- status[status$Status != 'Done', ]
+    if(isFALSE(loadAll)) {
+        status <- status[status$Status != 'Done', ]
+    }
     status <- list(
         projectName = status[['Project Name']],
         deviceName = status[['Item']],
