@@ -2180,6 +2180,9 @@ saveQLog <- function(data, dir, update=c('new', 'all', 'none')) {
                    oldIx <- which(old$PROJIX == proj)
                    newIx <- data$PROJIX == proj
                    for(c in updateCols) {
+                       if(!c %in% names(old)) {
+                           old[[c]] <- NA
+                       }
                        if(is.na(old[[c]][oldIx]) &&
                           !is.na(data[[c]][newIx])) {
                            old[[c]][oldIx] <- data[[c]][newIx]
