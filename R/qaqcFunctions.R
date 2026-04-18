@@ -219,7 +219,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                 thisTempData$Datetime_UTC <- format(thisTempData$Datetime_UTC, format='%m-%d-%Y_%H:%M:%S')
                 if(hasDeployments) {
                     filtTempData <- filterTempData(thisTempData, 
-                                                   datecol='Datetime_UTC',
+                                                   dateCol='Datetime_UTC',
                                                    start=thirdDay, end=secondLastDay)
                     if(nrow(filtTempData) == 0) {
                         warning('No Soundtrap temperature data remaining after date filtering ',
