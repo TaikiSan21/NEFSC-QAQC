@@ -226,7 +226,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                         warning('No Soundtrap temperature data remaining after date filtering ',
                                 ' for project ', thisName)
                     } else {
-                        filtTempFile <- paste0(thisName, 'Filtered_ST_Temp_data.csv')
+                        filtTempFile <- paste0(thisName, '_Filtered_ST_Temp_data.csv')
                         write.csv(filtTempData, file=file.path(thisTempDir, filtTempFile), row.names=FALSE)
                     }
                 }
@@ -3893,7 +3893,7 @@ readVemcoFolder <- function(dir, vdat_exe, verbose=TRUE) {
     if(is.null(result)) {
         warning('Problem reading temperature from VEMCO folder ', dir)
     }
-    vemId <- gsub(' ', '_', csvFiles)
+    vemId <- gsub(' ', '_', basename(csvFiles))
     vemId <- strsplit(vemId, '_')[[1]][2]
     result$id <- vemId
     result$file <- basename(csvFiles)
