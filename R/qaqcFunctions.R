@@ -1434,7 +1434,13 @@ parseDeviceId <- function(x) {
     x
 }
 
-addNefscDirs <- function(log, recBase=NULL, qaqcBase=NULL, tempBase=NULL, teleBase=NULL, levels=3, verbose=TRUE) {
+addNefscDirs <- function(log, 
+                         recBase=NULL, 
+                         qaqcBase=NULL,
+                         tempBase=NULL, 
+                         teleBase=NULL, 
+                         levels=6, 
+                         verbose=TRUE) {
     # only try to add dirs if they are missing or if base is same
     # e.g. don't try if new BOTTOM_MOUNTED but old was not
     # fix bad windows slash
