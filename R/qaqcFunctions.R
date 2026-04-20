@@ -3862,6 +3862,10 @@ readVemcoFolder <- function(dir, vdat_exe, verbose=TRUE) {
     if(length(csvFiles) == 1) {
         result <- suppressWarnings(readVrlCsv(csvFiles))
         if(!is.null(result)) {
+            vemId <- gsub(' ', '_', csvFiles)
+            vemId <- strsplit(vemId, '_')[[1]][2]
+            result$id <- vemId
+            result$file <- basename(csvFiles)
             return(result)
         }
     }
