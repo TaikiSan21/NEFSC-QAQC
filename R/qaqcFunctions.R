@@ -257,7 +257,10 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             }
             if(!is.null(vemcoData)) {
                 thisTempDir <- file.path(x$tempBaseDir[i], x$tempDir[i])
-                thisTempFile <- paste0(thisName, '_Filtered_VEMCO_Temp_data.csv')
+                vemId <- vemcoData$id[1]
+                vemcoData$id <- NULL
+                vemName <- gsub(x$deviceId[i], vemId, thisName)
+                thisTempFile <- paste0(vemName, '_Filtered_VEMCO_Temp_data.csv')
                 thisTempData <- distinct(vemcoData)
                 thisTempData <- filterTempData(thisTempData, dateCol='Time_UTC', 
                                                start=thirdDay, end=secondLastDay)
@@ -3886,6 +3889,10 @@ readVemcoFolder <- function(dir, vdat_exe, verbose=TRUE) {
     if(is.null(result)) {
         warning('Problem reading temperature from VEMCO folder ', dir)
     }
+    vemId <- gsub(' ', '_', csvFiles)
+    vemId <- strsplit(vemId, '_')[[1]][2]
+    result$id <- vemId
+    result$file <- basename(csvFiles)
     result
 }
 
