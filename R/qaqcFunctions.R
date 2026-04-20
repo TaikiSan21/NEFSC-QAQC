@@ -1340,7 +1340,7 @@ stFileToPosix <- function(x) {
 }
 
 # levels controls how far down we can go
-mapProjectDir <- function(project, dir, levels=4, verbose=TRUE) {
+mapProjectDir <- function(project, dir, levels=4, maxSubs=100, verbose=TRUE) {
     if(is.null(project) || length(project) == 0) {
         character(0)
     }
@@ -1396,8 +1396,13 @@ mapProjectDir <- function(project, dir, levels=4, verbose=TRUE) {
             # grepl('PROJECT_ADMIN_ACCDATA', curDir[isParksAus])) {
             curDir[isParksAus] <- paste0(curDir[isParksAus], '/Recorder Performance')
         }
-        
         levels <- levels - 1
+        if(length(curDir) > maxSubs) {
+            if(verbose) {
+                cat('Did not find matching folder, number of sub-directories exceeded maxSubs.\n')
+            }
+            break
+        }
         if(levels == 0) {
             if(verbose) {
                 cat('Did not find matching folder.\n')
