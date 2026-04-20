@@ -1403,7 +1403,7 @@ mapProjectDir <- function(project, dir, levels=4, maxSubs=100, verbose=TRUE) {
             }
             break
         }
-        if(levels == 0) {
+        if(levels == 0 || length(curDir) == 0) {
             if(verbose) {
                 cat('Did not find matching folder.\n')
             }
