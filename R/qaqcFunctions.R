@@ -1399,7 +1399,8 @@ mapProjectDir <- function(project, dir, levels=4, maxSubs=100, verbose=TRUE) {
         levels <- levels - 1
         if(length(curDir) > maxSubs) {
             if(verbose) {
-                cat('Did not find matching folder, number of sub-directories exceeded maxSubs.\n')
+                cat('Did not find matching folder, number of sub-directories',
+                ' exceeded maxSubs=', maxSubs, '.\n', sep='')
             }
             break
         }
