@@ -1400,7 +1400,7 @@ mapProjectDir <- function(project, dir, levels=4, maxSubs=100, verbose=TRUE) {
         if(length(curDir) > maxSubs) {
             if(verbose) {
                 cat('Did not find matching folder, number of sub-directories',
-                ' exceeded maxSubs=', maxSubs, '.\n', sep='')
+                    ' exceeded maxSubs=', maxSubs, '.\n', sep='')
             }
             break
         }
@@ -3742,11 +3742,18 @@ isFileWritable <- function(file) {
 }
 
 makeCloudSecrets <- function() {
-    smartSec <- try(system('gcloud secrets versions access latest --secret="taiki-api-key"', intern=TRUE))
-    if(inherits(smartSec, 'try-error')) {
-        warning('Could not access API key - ask Taiki for HELP!')
-        return(NULL)
-    }
+    smartSec <- tryCatch(
+        system('gcloud secrets versions access latest --secret="taiki-api-key"', intern=TRUE), 
+        warning = function(w) {
+            # print(w)
+            warning('Could not access API key - ask Taiki for HELP! Warning-', w$message, call. = FALSE)
+            return(NULL)
+        },
+        error = function(e) {
+            # print(e)
+            warning('Could not access API key - ask Taiki for HELP! Error-', e$message, call.=FALSE)
+            return(NULL)
+        })
     list(
         smart_key = smartSec,
         pa_data_id = '212707250071436',
