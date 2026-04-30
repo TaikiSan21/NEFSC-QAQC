@@ -3745,19 +3745,19 @@ makeCloudSecrets <- function() {
     smartSec <- tryCatch(
         system('gcloud secrets versions access latest --secret="taiki-api-key"', intern=TRUE), 
         warning = function(w) {
-            # print(w)
             warning('Could not access API key - ask Taiki for HELP! Warning-', w$message, call. = FALSE)
             return(NULL)
         },
         error = function(e) {
-            # print(e)
             warning('Could not access API key - ask Taiki for HELP! Error-', e$message, call.=FALSE)
             return(NULL)
         })
     list(
         smart_key = smartSec,
         pa_data_id = '212707250071436',
-        ins_track_id = '2939021493069708'
+        ins_track_id = '2939021493069708',
+        st_deployment_id = '8633482340525964',
+        rt_tracking_id = '3627925053433740'
     )
 }
 
