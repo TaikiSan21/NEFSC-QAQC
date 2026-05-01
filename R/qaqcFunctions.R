@@ -331,13 +331,14 @@ evaluateDeployment <- function(dir,
                                specLength=30,
                                panelLength=5,
                                log=FALSE,
+                               tempOnly=FALSE,
                                progress=TRUE,
                                doClipping=FALSE) {
     if(!dir.exists(dir)) {
         warning('Folder ', dir, ' does not exist')
         return(NULL)
     }
-    if(!dir.exists(outDir)) {
+    if(!is.null(outDir) && !dir.exists(outDir)) {
         dir.create(outDir)
     }
     procStart <- Sys.time()
@@ -507,7 +508,56 @@ evaluateDeployment <- function(dir,
         }
         calibration <- allFiles[isCal][1]
     }
-    
+    # IF st log files exist add the batt/temp data
+    if(any(isLog)) {
+        if(log) {
+            cat('---', format(Sys.time(), '%Y-%m-%d %H:%M:%S'), '\n')
+            cat('Analyzing Soundtrap log files for Temperature and Voltage\n')
+        }
+        wavDf <- data.frame(UTC = wavTimes)
+        logQaqc <- processSoundtrapLogs(logFiles)
+        wavDf <- PAMpal::timeJoin(wavDf,
+                                  # rename(logQaqc, 'UTC' = 'startUTC')[c('UTC', 'intBatt', 'extBatt', 'temp')],
+                                  distinct(rename(logQaqc, 'UTC' = 'fileTime')[c('UTC', 'intBatt', 'extBatt', 'temp')]),
+                                  interpolate=FALSE)
+        # logs may not match first and last wav files bc they can be chopped, correct
+        # firstIn <- wavDf$UTC[1] >= logQaqc$startUTC & wavDf$UTC[1] <= logQaqc$endUTC
+        startEndDiff <- as.numeric(difftime(logQaqc$endUTC, logQaqc$startUTC, units='secs'))
+        logQaqc$startUTC <- logQaqc$fileTime
+        logQaqc$endUTC <- logQaqc$startUTC + startEndDiff
+        # firstIn <- wavDf$UTC[1] >= logQaqc$startUTC
+        firstIn <- wavTimes[1] >= logQaqc$startUTC
+        firstIn <- max(which(firstIn))
+        # lastIn <- wavDf$UTC[nrow(wavDf)] >= logQaqc$startUTC & wavDf$UTC[nrow(wavDf)] <= logQaqc$endUTC
+        # lastIn <- wavDf$UTC[nrow(wavDf)] <= logQaqc$endUTC
+        lastIn <- wavTimes[length(wavTimes)] <= logQaqc$endUTC
+        lastIn <- min(which(lastIn))
+        wavDf$intBatt[1] <- logQaqc$intBatt[firstIn]
+        wavDf$intBatt[nrow(wavDf)] <- logQaqc$intBatt[lastIn]
+        wavDf$extBatt[1] <- logQaqc$extBatt[firstIn]
+        wavDf$extBatt[nrow(wavDf)] <- logQaqc$extBatt[lastIn]
+        wavDf$temp[1] <- logQaqc$temp[firstIn]
+        wavDf$temp[nrow(wavDf)] <- logQaqc$temp[lastIn]
+        
+        if(!is.null(outDir)) {
+            tvPlot <- plotQAQCTV(wavDf, title=name) + 
+                theme(plot.title = element_text(hjust = 0.5))
+            ggsave(filename=file.path(outDir, paste0(name, '_TempVoltPlot.png')),
+                   plot=tvPlot, width=3e3, height=2e3, units='px')
+        }
+        if(isTRUE(tempOnly)) {
+            if(!is.null(name)) {
+                wavDf$projectName <- name
+            }
+            if(log) {
+                cat('------------------------------------------\n')
+                cat('Evaluation finished without issue on',
+                    format(Sys.time(), '%Y-%m-%d %H:%M:%S'), '\n')
+                cat('------------------------------------------\n')
+            }
+            return(wavDf)
+        }
+    }
     if(log) {
         cat('Calculating TOLs from', sampleWindow[1], 'to', sampleWindow[2],
             'for', length(wavFiles), 'files', '\n')
@@ -563,41 +613,9 @@ evaluateDeployment <- function(dir,
                    plot=calPlot, width=3e3, height=2e3, units='px')
         }
     }
-    
-    # IF st log files exist add the batt/temp data
+    # join with separate log df made earlier
     if(any(isLog)) {
-        if(log) {
-            cat('---', format(Sys.time(), '%Y-%m-%d %H:%M:%S'), '\n')
-            cat('Analyzing Soundtrap log files for Temperature and Voltage\n')
-        }
-        logQaqc <- processSoundtrapLogs(logFiles)
-        wavQaqc <- PAMpal::timeJoin(wavQaqc,
-                                    # rename(logQaqc, 'UTC' = 'startUTC')[c('UTC', 'intBatt', 'extBatt', 'temp')],
-                                    distinct(rename(logQaqc, 'UTC' = 'fileTime')[c('UTC', 'intBatt', 'extBatt', 'temp')]),
-                                    interpolate=FALSE)
-        # logs may not match first and last wav files bc they can be chopped, correct
-        # firstIn <- wavQaqc$UTC[1] >= logQaqc$startUTC & wavQaqc$UTC[1] <= logQaqc$endUTC
-        startEndDiff <- as.numeric(difftime(logQaqc$endUTC, logQaqc$startUTC, units='secs'))
-        logQaqc$startUTC <- logQaqc$fileTime
-        logQaqc$endUTC <- logQaqc$startUTC + startEndDiff
-        firstIn <- wavQaqc$UTC[1] >= logQaqc$startUTC
-        firstIn <- max(which(firstIn))
-        # lastIn <- wavQaqc$UTC[nrow(wavQaqc)] >= logQaqc$startUTC & wavQaqc$UTC[nrow(wavQaqc)] <= logQaqc$endUTC
-        lastIn <- wavQaqc$UTC[nrow(wavQaqc)] <= logQaqc$endUTC
-        lastIn <- min(which(lastIn))
-        wavQaqc$intBatt[1] <- logQaqc$intBatt[firstIn]
-        wavQaqc$intBatt[nrow(wavQaqc)] <- logQaqc$intBatt[lastIn]
-        wavQaqc$extBatt[1] <- logQaqc$extBatt[firstIn]
-        wavQaqc$extBatt[nrow(wavQaqc)] <- logQaqc$extBatt[lastIn]
-        wavQaqc$temp[1] <- logQaqc$temp[firstIn]
-        wavQaqc$temp[nrow(wavQaqc)] <- logQaqc$temp[lastIn]
-        
-        if(!is.null(outDir)) {
-            tvPlot <- plotQAQCTV(wavQaqc, title=name) + 
-                theme(plot.title = element_text(hjust = 0.5))
-            ggsave(filename=file.path(outDir, paste0(name, '_TempVoltPlot.png')),
-                   plot=tvPlot, width=3e3, height=2e3, units='px')
-        }
+        wavQaqc <- left_join(wavQaqc, wavDf, by='UTC')
     }
     if(!is.null(outDir)) {
         wavQaqc$UTC <- psxTo8601(wavQaqc$UTC)
