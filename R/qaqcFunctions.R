@@ -87,6 +87,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     badTime <- character(0)
     evalWarn <- character(0)
     noRerun <- character(0)
+    numTempOnly <- 0
     
     for(i in which(toRun)) {
         # First check conditions for skipping ####
@@ -239,6 +240,9 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                     }
                 }
                 write.csv(thisTempData, file=file.path(thisTempDir, thisTempFile), row.names=FALSE)
+                if(isTRUE(tempOnly)) {
+                    numTempOnly <- numTempOnly + 1
+                }
             }
         }
         # Vemco Temperatuer ####
@@ -278,6 +282,9 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                 } else {
                     thisTempData$Time_UTC <- format(thisTempData$Time_UTC, format='%Y-%m-%d %H:%M:%S')
                     write.csv(thisTempData, file=file.path(thisTempDir, thisTempFile), row.names=FALSE)
+                    if(isTRUE(tempOnly)) {
+                        numTempOnly <- numTempOnly + 1
+                    }
                 }
             }
         }
@@ -318,6 +325,9 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     if(length(evalWarn) > 0) {
         warning('Warning occurred when running project(s) ', printN(evalWarn, Inf),
                 ', check the log file for details.')
+    }
+    if(numTempOnly > 0) {
+        warning('Created ', numTempOnly, ' temperature CSV files')
     }
     x
 }
