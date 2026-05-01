@@ -29,7 +29,7 @@ for(p in requiredPackages) {
 }
 
 processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE, autosave=TRUE, log=TRUE,
-                           doClipping=FALSE, minHoursApart=2, vdat=NULL) {
+                           doClipping=FALSE, minHoursApart=2, vdat=NULL, tempOnly=FALSE) {
     baseDir <- NA
     if(is.character(x)) {
         if(dir.exists(x)) {
@@ -49,6 +49,13 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     }
     if(!isQaqcLog(x)) {
         stop('This is not in the expected QAQC Log format')
+    }
+    # no need to save any updates when only doing temp updates
+    # make sure everything else also lines up
+    if(isTRUE(tempOnly)) {
+        autosave <- FALSE
+        doClipping <- FALSE
+        rerun <- TRUE
     }
     x$qaqcStatus <- checkValidStatus(x$qaqcStatus)
     toRun <- x$qaqcStatus %in% c('NoQAQC', 'TimeChecked', 'ClipOnly')
@@ -164,6 +171,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             log=log,
             nSpectrograms=nSpectrograms,
             outDir=file.path(outPath, 'QAQC_Output'),
+            tempOnly=tempOnly,
             progress=FALSE,
             doClipping=doClipping
         ))
@@ -273,7 +281,9 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                 }
             }
         }
-        x$qaqcStatus[i] <- 'QAQCRun'
+        if(isFALSE(tempOnly)) {
+            x$qaqcStatus[i] <- 'QAQCRun'
+        }
         ix <- ix +1
         setTxtProgressBar(pb, value=ix)
     }
@@ -340,6 +350,10 @@ evaluateDeployment <- function(dir,
     }
     if(!is.null(outDir) && !dir.exists(outDir)) {
         dir.create(outDir)
+    }
+    if(is.null(outDir) && isTRUE(log)) {
+        warning('Cannot create log file when outDir is NULL')
+        log <- FALSE
     }
     procStart <- Sys.time()
     on.exit({
@@ -439,6 +453,13 @@ evaluateDeployment <- function(dir,
     # checkHoursApart <- markHoursApart(wavFiles, hours=minHoursApart, ignoreClipping=TRUE)
     # wavFiles <- wavFiles[checkHoursApart]
     isLog <- grepl('\\.log\\.xml', allFiles)
+    if(!any(isLog) &&
+       isTRUE(tempOnly)) {
+        if(log) {
+            cat('No Soundtrap log files to process\n')
+        }
+        return(NULL)
+    }
     logFiles <- allFiles[isLog]
     wavTimes <- wavToTime(wavFiles)
     if(isTRUE(doClipping) &&
