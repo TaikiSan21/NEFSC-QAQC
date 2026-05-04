@@ -55,7 +55,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     if(isTRUE(tempOnly)) {
         autosave <- FALSE
         doClipping <- FALSE
-        rerun <- TRUE
+        # rerun <- TRUE
     }
     x$qaqcStatus <- checkValidStatus(x$qaqcStatus)
     toRun <- x$qaqcStatus %in% c('NoQAQC', 'TimeChecked', 'ClipOnly')
