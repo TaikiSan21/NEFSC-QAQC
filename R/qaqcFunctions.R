@@ -145,7 +145,8 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
         qOutputFile <- file.path(outPath, 'QAQC_Output', paste0(thisName, '_QAQCData.csv'))
         if(isFALSE(rerun) && 
            dir.exists(file.path(outPath, 'QAQC_Output')) &&
-           file.exists(qOutputFile)) {
+           file.exists(qOutputFile) &&
+           isFALSE(tempOnly)) { # dont full skip if trying tempOnly
             noRerun <- c(noRerun, x$projectName[i])
             ix <- ix + 1
             setTxtProgressBar(pb, value=ix)
@@ -222,7 +223,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             } else if('temp' %in% names(tryEvalDep) &&
                       !all(is.na(tryEvalDep$temp))) {
                 thisTempDir <- file.path(x$tempBaseDir[i], x$tempDir[i])
-                thisTempFile <- paste0(thisName, '_ST_Internal_temp.csv')
+                thisTempFile <- file.path(thisTempDir, paste0(thisName, '_ST_Internal_temp.csv'))
                 thisTempData <- distinct(tryEvalDep[c('UTC', 'temp')])
                 names(thisTempData) <- c('Datetime_UTC', 'Internal_temp_C')
                 thisTempData$Datetime_UTC <- format(thisTempData$Datetime_UTC, format='%m-%d-%Y_%H:%M:%S')
@@ -235,13 +236,20 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                         warning('No Soundtrap temperature data remaining after date filtering ',
                                 ' for project ', thisName)
                     } else {
-                        filtTempFile <- paste0(thisName, '_Filtered_ST_Temp_data.csv')
-                        write.csv(filtTempData, file=file.path(thisTempDir, filtTempFile), row.names=FALSE)
+                        filtTempFile <- file.path(thisTempDir, paste0(thisName, '_Filtered_ST_Temp_data.csv'))
+                        if(isTRUE(rerun) || !file.exists(filtTempFile)) {
+                            write.csv(filtTempData, file=filtTempFile, row.names=FALSE)
+                            if(isTRUE(tempOnly)) {
+                                numTempOnly <- numTempOnly + 1
+                            }
+                        }
                     }
                 }
-                write.csv(thisTempData, file=file.path(thisTempDir, thisTempFile), row.names=FALSE)
-                if(isTRUE(tempOnly)) {
-                    numTempOnly <- numTempOnly + 1
+                if(isTRUE(rerun) || !file.exists(thisTempFile)) {
+                    write.csv(thisTempData, file=thisTempFile, row.names=FALSE)
+                    if(isTRUE(tempOnly)) {
+                        numTempOnly <- numTempOnly + 1
+                    }
                 }
             }
         }
@@ -272,7 +280,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                 vemId <- vemcoData$id[1]
                 vemcoData$id <- NULL
                 vemName <- gsub(x$deviceId[i], vemId, thisName)
-                thisTempFile <- paste0(vemName, '_Filtered_VEMCO_Temp_data.csv')
+                thisTempFile <- file.path(thisTempDir, paste0(vemName, '_Filtered_VEMCO_Temp_data.csv'))
                 thisTempData <- distinct(vemcoData)
                 thisTempData <- filterTempData(thisTempData, dateCol='Time_UTC', 
                                                start=thirdDay, end=secondLastDay)
@@ -281,9 +289,11 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                             'for project ', thisName)
                 } else {
                     thisTempData$Time_UTC <- format(thisTempData$Time_UTC, format='%Y-%m-%d %H:%M:%S')
-                    write.csv(thisTempData, file=file.path(thisTempDir, thisTempFile), row.names=FALSE)
-                    if(isTRUE(tempOnly)) {
-                        numTempOnly <- numTempOnly + 1
+                    if(isTRUE(rerun) || !file.exists(thisTempFile)) {
+                        write.csv(thisTempData, file=thisTempFile, row.names=FALSE)
+                        if(isTRUE(tempOnly)) {
+                            numTempOnly <- numTempOnly + 1
+                        }
                     }
                 }
             }
