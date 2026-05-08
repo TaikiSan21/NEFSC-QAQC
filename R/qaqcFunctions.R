@@ -3900,7 +3900,7 @@ readVrlCsv <- function(x, type='TEMP', name='Temperature_C') {
     names(result) <- c('Parameter', 'Time_UTC', name)
     result <- dplyr::filter(result, Parameter == type)
     if(nrow(result) == 0) {
-        warning('File ', basename(x), ' did not contain any ', type, ,' data')
+        warning('File ', basename(x), ' did not contain any ', type, ' data')
         return(NULL)
     }
     result$Parameter <- NULL
