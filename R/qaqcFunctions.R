@@ -50,16 +50,20 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     if(!isQaqcLog(x)) {
         stop('This is not in the expected QAQC Log format')
     }
+    x$qaqcStatus <- checkValidStatus(x$qaqcStatus)
+    toRun <- x$qaqcStatus %in% c('NoQAQC', 'TimeChecked', 'ClipOnly')
+    noBase <- is.na(x$qaqcBaseDir) | is.na(x$projectBaseDir)
     # no need to save any updates when only doing temp updates
     # make sure everything else also lines up
     if(isTRUE(tempOnly)) {
         autosave <- FALSE
         doClipping <- FALSE
+        log <- FALSE
+        doClipping <- FALSE
+        nSpectrograms <- 0
         # rerun <- TRUE
+        noBase <- is.na(x$projectBaseDir) # dont care about qaqc
     }
-    x$qaqcStatus <- checkValidStatus(x$qaqcStatus)
-    toRun <- x$qaqcStatus %in% c('NoQAQC', 'TimeChecked', 'ClipOnly')
-    noBase <- is.na(x$qaqcBaseDir) | is.na(x$projectBaseDir)
     if(any(noBase)) {
         warning(sum(noBase), ' projects (', printN(x$projectName[noBase]),
                 ') are missing project or QAQC base directory, must be remapped',
@@ -73,7 +77,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     if(!all(dir.exists(unique(x$projectBaseDir[toRun])))) {
         stop('Base recording directories do not exist - check path or remap')
     }
-    if(!all(dir.exists(unique(x$qaqcBaseDir[toRun])))) {
+    if(isFALSE(tempOnly) && !all(dir.exists(unique(x$qaqcBaseDir[toRun])))) {
         stop('Base QAQC directories do no exist - check path or remap')
     }
     
@@ -98,7 +102,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             next
         }
         outPath <- file.path(x$qaqcBaseDir[i], x$qaqcDir[i])
-        if(!dir.exists(outPath)) {
+        if(!dir.exists(outPath) && isFALSE(tempOnly)) {
             badOut <- c(badOut, x$projectName[i])
             ix <- ix + 1
             setTxtProgressBar(pb, value=ix)
@@ -133,7 +137,8 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
         if(!is.null(x$calibration[i]) &&
            !is.na(x$calibration[i]) &&
            is.character(x$calibration[i]) &&
-           !file.exists(x$calibration[i])) {
+           !file.exists(x$calibration[i]) &&
+           isFALSE(tempOnly)) {
             outPathFiles <- list.files(outPath, full.names=TRUE, recursive=FALSE)
             possCal <- grepl(basename(x$calibration[i]), outPathFiles)
             if(any(possCal)) {
@@ -160,6 +165,10 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
         } else {
             paste0('^', x$deviceId[i])
         }
+        evalOut <- file.path(outPath, 'QAQC_Output')
+        if(isTRUE(tempOnly)) {
+            evalOut <- NULL
+        }
         tryEvalDep <- try(evaluateDeployment(
             dir=file.path(x$projectBaseDir[i], x$projectDir[i]),
             excludeDirs=c('Post_Retrieval_Data', 'Pre_Deployment_Data'),
@@ -172,7 +181,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             subPattern=subPattern,
             log=log,
             nSpectrograms=nSpectrograms,
-            outDir=file.path(outPath, 'QAQC_Output'),
+            outDir=evalOut,
             tempOnly=tempOnly,
             progress=FALSE,
             doClipping=doClipping
