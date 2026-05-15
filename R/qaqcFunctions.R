@@ -95,7 +95,8 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     
     for(i in which(toRun)) {
         # First check conditions for skipping ####
-        if(is.na(x$qaqcDir[i])) {
+        if(is.na(x$qaqcDir[i]) &&
+           isFALSE(tempOnly)) {
             noOut <- c(noOut, x$projectName[i])
             ix <- ix + 1
             setTxtProgressBar(pb, value=ix)
