@@ -50,6 +50,17 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     if(!isQaqcLog(x)) {
         stop('This is not in the expected QAQC Log format')
     }
+    if(!is.null(vdat) &&
+       file.exists(vdat)) {
+        vdat_ok <- suppressWarnings(system2(path.expand(vdat_path), args = "--version", stdout = FALSE, stderr = FALSE))
+        if(vdat_ok != 0) {
+            tmpfile <- tempfile()
+            file.copy(from=vdat, to=tmpfile)
+            vdat <- tmpfile
+            on.exit(unlink(tmpfile), add=TRUE)
+        }
+    }
+       
     x$qaqcStatus <- checkValidStatus(x$qaqcStatus)
     toRun <- x$qaqcStatus %in% c('NoQAQC', 'TimeChecked', 'ClipOnly')
     noBase <- is.na(x$qaqcBaseDir) | is.na(x$projectBaseDir)
