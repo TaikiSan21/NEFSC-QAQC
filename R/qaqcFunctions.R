@@ -52,7 +52,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     }
     if(!is.null(vdat) &&
        file.exists(vdat)) {
-        vdat_ok <- suppressWarnings(system2(path.expand(vdat_path), args = "--version", stdout = FALSE, stderr = FALSE))
+        vdat_ok <- suppressWarnings(system2(path.expand(vdat), args = "--version", stdout = FALSE, stderr = FALSE))
         if(vdat_ok != 0) {
             tmpfile <- tempfile()
             file.copy(from=vdat, to=tmpfile)
