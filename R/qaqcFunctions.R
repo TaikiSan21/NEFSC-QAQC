@@ -200,7 +200,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
         }
         
         if(isFALSE(rerun) && isTRUE(tempOnly)) {
-            skipVem <- isFALSE(hasVemco) || grepl('_Filtered_VEMCO_Temp_data.csv', list.files(thisTempDir))
+            skipVem <- isFALSE(hasVemco) || any(grepl('_Filtered_VEMCO_Temp_data.csv', list.files(thisTempDir)))
             skipST <- isFALSE(isSoundtrap) || file.exists(file.path(thisTempDir, paste0(thisName, '_Filtered_ST_Temp_data.csv')))
             if(isTRUE(skipVem) && isTRUE(skipST)) {
                 ix <- ix + 1
