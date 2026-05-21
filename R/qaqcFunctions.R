@@ -1357,6 +1357,10 @@ processSoundtrapLogs <- function(dir, voltSelect=c('internal', 'external')) {
     
     # try for auto-select based on HARDWARE_ID
     hardwareNode <- xml_find_all(xml, '//HARDWARE_ID')
+    if(length(hardwareNode) == 0) {
+        warning('File ', dir, ' does not appear to be a full XML log file')
+        return(NULL)
+    }
     result$model <- as.character(gsub(' ', '', xml_contents(hardwareNode)))
     # decide based on model if appropriate
     if(length(voltSelect) > 1) {
