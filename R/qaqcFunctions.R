@@ -104,7 +104,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     evalWarn <- character(0)
     noRerun <- character(0)
     numTempOnly <- 0
-    
+    badTempOnly <- character(0)
     for(i in which(toRun)) {
         # First check conditions for skipping ####
         if(is.na(x$qaqcDir[i]) &&
@@ -170,7 +170,44 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             setTxtProgressBar(pb, value=ix)
             next
         }
+        hasTemp <- !is.na(x$tempDir[i]) &&
+            dir.exists(file.path(x$tempBaseDir[i], x$tempDir[i]))
+        if(isTRUE(tempOnly) && isFALSE(hasTemp)) {
+            ix <- ix + 1
+            setTxtProgressBar(pb, value=ix)
+            badTempOnly <- c(badTempOnly, x$projectName[i])
+            next
+        }
+        isSoundtrap <- grepl('soundtrap', tolower(x$deviceName[i]))
+        if(hasTemp) {
+            thisTempDir <- file.path(x$tempBaseDir[i], x$tempDir[i])
+        }
+        hasDeployments <- !is.na(x$deploymentDate[i]) && !is.na(x$recoveryDate[i])
+        if(hasDeployments) {
+            deploymentDate <- as.Date(x$deploymentDate[i], format = "%Y-%m-%d")
+            thirdDay <- deploymentDate + 2 # to allow of logger acclimating
+            recoveryDate <-  as.Date(x$recoveryDate[i], format = "%Y-%m-%d")
+            secondLastDay <- recoveryDate - 1
+        }
+        hasVemco <- !is.na(x$teleDir[i]) && 
+            dir.exists(file.path(x$teleBaseDir[i], x$teleDir[i]))
         
+        if(isTRUE(tempOnly) && isFALSE(hasDeployments)) {
+            ix <- ix + 1
+            setTxtProgressBar(pb, value=ix)
+            badTempOnly <- c(badTempOnly, x$projectName[i])
+            next
+        }
+        
+        if(isFALSE(rerun) && isTRUE(tempOnly)) {
+            skipVem <- isFALSE(hasVemco) || grepl('_Filtered_VEMCO_Temp_data.csv', list.files(thisTempDir))
+            skipST <- isFALSE(isSoundtrap) || file.exists(file.path(thisTempDir, paste0(thisName, '_Filtered_ST_Temp_data.csv')))
+            if(isTRUE(skipVem) && isTRUE(skipST)) {
+                ix <- ix + 1
+                setTxtProgressBar(pb, value=ix)
+                next
+            }
+        }
         # Then try running the eval code ####
         # This saves outputs in outDir if its not NULL
         subPattern <- if(is.na(x$deviceId[i])) {
@@ -228,29 +265,19 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
         }
         # ST Temperature parts ####
         # only try temperature stuff if its an ST
-        isSoundtrap <- grepl('soundtrap', tolower(x$deviceName[i]))
-        hasTemp <- !is.na(x$tempDir[i]) &&
-            dir.exists(file.path(x$tempBaseDir[i], x$tempDir[i]))
-        hasDeployments <- !is.na(x$deploymentDate[i]) && !is.na(x$recoveryDate[i])
-        if(hasDeployments) {
-            deploymentDate <- as.Date(x$deploymentDate[i], format = "%Y-%m-%d")
-            thirdDay <- deploymentDate + 2 # to allow of logger acclimating
-            recoveryDate <-  as.Date(x$recoveryDate[i], format = "%Y-%m-%d")
-            secondLastDay <- recoveryDate - 1
-        }
+        
         if(isSoundtrap) {
             if(!hasTemp) {
                 warning('No valid temperature directory provided, separate Soundtrap temperature log',
                         ' will not be saved for project ', thisName)
             } else if('temp' %in% names(tryEvalDep) &&
                       !all(is.na(tryEvalDep$temp))) {
-                thisTempDir <- file.path(x$tempBaseDir[i], x$tempDir[i])
-                thisTempFile <- file.path(thisTempDir, paste0(thisName, '_ST_Internal_temp.csv'))
-                thisTempData <- distinct(tryEvalDep[c('UTC', 'temp')])
-                names(thisTempData) <- c('Datetime_UTC', 'Internal_temp_C')
-                thisTempData$Datetime_UTC <- format(thisTempData$Datetime_UTC, format='%m-%d-%Y_%H:%M:%S')
+                stTempFile <- file.path(thisTempDir, paste0(thisName, '_ST_Internal_temp.csv'))
+                stTempData <- distinct(tryEvalDep[c('UTC', 'temp')])
+                names(stTempData) <- c('Datetime_UTC', 'Internal_temp_C')
+                stTempData$Datetime_UTC <- format(stTempData$Datetime_UTC, format='%m-%d-%Y_%H:%M:%S')
                 if(hasDeployments) {
-                    filtTempData <- filterTempData(thisTempData, 
+                    filtTempData <- filterTempData(stTempData, 
                                                    dateCol='Datetime_UTC',
                                                    format='%m-%d-%Y',
                                                    start=thirdDay, end=secondLastDay)
@@ -267,8 +294,8 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                         }
                     }
                 }
-                if(isTRUE(rerun) || !file.exists(thisTempFile)) {
-                    write.csv(thisTempData, file=thisTempFile, row.names=FALSE)
+                if(isTRUE(rerun) || !file.exists(stTempFile)) {
+                    write.csv(stTempData, file=stTempFile, row.names=FALSE)
                     if(isTRUE(tempOnly)) {
                         numTempOnly <- numTempOnly + 1
                     }
@@ -276,8 +303,6 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             }
         }
         # Vemco Temperatuer ####
-        hasVemco <- !is.na(x$teleDir[i]) && 
-            dir.exists(file.path(x$teleBaseDir[i], x$teleDir[i]))
         if(!hasVemco) {
             warning('No valid VEMCO directory provided, separate VEMCO temperature file',
                     ' will not be saved for project ', thisName)
@@ -298,21 +323,20 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                         ' will not be saved for project ', thisName)
             }
             if(!is.null(vemcoData)) {
-                thisTempDir <- file.path(x$tempBaseDir[i], x$tempDir[i])
                 vemId <- vemcoData$id[1]
                 vemcoData$id <- NULL
                 vemName <- gsub(x$deviceId[i], vemId, thisName)
-                thisTempFile <- file.path(thisTempDir, paste0(vemName, '_Filtered_VEMCO_Temp_data.csv'))
-                thisTempData <- distinct(vemcoData)
-                thisTempData <- filterTempData(thisTempData, dateCol='Time_UTC', 
+                vemTempFile <- file.path(thisTempDir, paste0(vemName, '_Filtered_VEMCO_Temp_data.csv'))
+                vemTempData <- distinct(vemcoData)
+                vemTempData <- filterTempData(vemTempData, dateCol='Time_UTC', 
                                                start=thirdDay, end=secondLastDay)
-                if(nrow(thisTempData) == 0) {
+                if(nrow(vemTempData) == 0) {
                     warning('No VEMCO temperature data remaining after date filtering ',
                             'for project ', thisName)
                 } else {
-                    thisTempData$Time_UTC <- format(thisTempData$Time_UTC, format='%Y-%m-%d %H:%M:%S')
-                    if(isTRUE(rerun) || !file.exists(thisTempFile)) {
-                        write.csv(thisTempData, file=thisTempFile, row.names=FALSE)
+                    vemTempData$Time_UTC <- format(vemTempData$Time_UTC, format='%Y-%m-%d %H:%M:%S')
+                    if(isTRUE(rerun) || !file.exists(vemTempFile)) {
+                        write.csv(vemTempData, file=vemTempFile, row.names=FALSE)
                         if(isTRUE(tempOnly)) {
                             numTempOnly <- numTempOnly + 1
                         }
@@ -360,6 +384,10 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
     }
     if(numTempOnly > 0) {
         warning('Created ', numTempOnly, ' temperature CSV files')
+    }
+    if(length(badTempOnly) > 0) {
+        warning('Temperature data skipped for project(s) ',
+                printN(badTempOnly, Inf))
     }
     x
 }
@@ -509,7 +537,7 @@ evaluateDeployment <- function(dir,
         warning('Cannot clip files without "timeRange" values', immediate.=TRUE)
         doClipping <- FALSE
     }
-    if(!is.null(timeRange)) {
+    if(!is.null(timeRange) && isFALSE(tempOnly)) {
         clipStart <- timeRange[1]
         clipEnd <- timeRange[2]
         startWav <- which.min(wavTimes)
