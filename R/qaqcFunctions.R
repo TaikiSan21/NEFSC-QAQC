@@ -399,7 +399,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
 evaluateDeployment <- function(dir, 
                                excludeDirs=c('Post_Retrieval_Data', 'Pre_Deployment_Data'),
                                sampleWindow=c(60, 120),
-                               channel=1,
+                               channel=NULL,
                                sensitivity=-174.2,
                                calibration=NA,
                                timeRange=NULL,
@@ -735,19 +735,26 @@ evaluateDeployment <- function(dir,
         if(toSpec[nSpectrograms] > length(nWavs)) {
             toSpec[nSpectrograms] <- nWavs
         }
+        specChannels <- channel
         for(i in seq_along(toSpec)) {
             thisWav <- fastReadWave(wavFiles[toSpec[i]], from=0, to=specLength * 60)
+            if(is.null(specChannels)) {
+                specChannels <- seq_len(nrow(thisWav))
+            }
             baseWav <- gsub('\\.[A-z]{1,4}$', '', basename(wavFiles[toSpec[i]]))
-            thisFile <- paste0(name, '_', 
-                               'Spectrogram', specLength, 'min_', 
-                               baseWav, '.png')
-            trySpec <- try(createSpecImage(thisWav, channel=1, wl=2048, hop=1,
-                                           title=paste0(name, '_', baseWav),
-                                           startTime=wavToTime(wavFiles[toSpec[i]]),
-                                           panelLength=panelLength, ratio=1,
-                                           file=file.path(specDir, thisFile)))
-            if(inherits(trySpec, 'try-error')) {
-                warning('Problem with spectrogram for ', baseWav)
+            for(c in specChannels) {
+                specName <- paste0(name, '_CH', c)
+                thisFile <- paste0(specName, '_', 
+                                   'Spectrogram', specLength, 'min_', 
+                                   baseWav, '.png')
+                trySpec <- try(createSpecImage(thisWav, channel=c, wl=2048, hop=1,
+                                               title=paste0(specName, '_', baseWav),
+                                               startTime=wavToTime(wavFiles[toSpec[i]]),
+                                               panelLength=panelLength, ratio=1,
+                                               file=file.path(specDir, thisFile)))
+                if(inherits(trySpec, 'try-error')) {
+                    warning('Problem with spectrogram for ', baseWav)
+                }
             }
         }
     }
@@ -964,7 +971,7 @@ evaluateWavFiles <- function(wavFiles,
                              sampleWindow=c(60, 120),
                              octave=c('tol', 'ol'),
                              plot=TRUE, 
-                             channel=1, 
+                             channel=NULL, 
                              freqRange=NULL,
                              calibration=NULL,
                              sensitivity=0,
@@ -1053,44 +1060,67 @@ evaluateWavFiles <- function(wavFiles,
             }
         }
         # this is list of $freq(Hz) $spec (linear)
-        welch <- pwelch(wavClip, nfft=nfft, noverlap=0, demean='long', channel=channel)
-        # drop 0 freq part
-        welch$freq <- welch$freq[-1]
-        welch$spec <- welch$spec[-1]
-        # apply calibration - sens only, or sens + transfer function
-        calValues <- sensitivity
-        if(!is.null(calibration)) {
-            calValues <- calValues + 
-                signal::interp1(calibration$frequency, calibration$gain, xi=welch$freq, method='pchip')
+        if(is.null(channel)) {
+            channel <- 1:wavHdr$channels
         }
-        welch$spec <- 10*log10(welch$spec) - calValues
-        welch$spec <- 10^(welch$spec / 10)
-        
-        tolBins <- cut(welch$freq, octaves$limits, octaves$labels)
-        tolVals <- lapply(split(welch$spec, tolBins, drop=TRUE), function(p) {
-            10*log10(sum(p))
-        })
-        time <- wavToTime(x)
-        tolVals$UTC <- time
-        tolVals$wavLength <- wavLength
-        tolVals$file <- basename(x)
+        result <- vector('list', length=length(channel))
+        for(c in seq_along(result)) {
+            if(channel[c] > wavHdr$channels) {
+                warning('Channel ', channel[c], ' not in file ', x)
+                next
+            }
+            welch <- pwelch(wavClip, nfft=nfft, noverlap=0, demean='long', channel=channel[c])
+            # drop 0 freq part
+            welch$freq <- welch$freq[-1]
+            welch$spec <- welch$spec[-1]
+            # apply calibration - sens only, or sens + transfer function
+            calValues <- sensitivity
+            if(!is.null(calibration)) {
+                calValues <- calValues + 
+                    signal::interp1(calibration$frequency, calibration$gain, xi=welch$freq, method='pchip')
+            }
+            welch$spec <- 10*log10(welch$spec) - calValues
+            welch$spec <- 10^(welch$spec / 10)
+            
+            tolBins <- cut(welch$freq, octaves$limits, octaves$labels)
+            tolVals <- lapply(split(welch$spec, tolBins, drop=TRUE), function(p) {
+                10*log10(sum(p))
+            })
+            time <- wavToTime(x)
+            tolVals$UTC <- time
+            tolVals$wavLength <- wavLength
+            tolVals$file <- basename(x)
+            tolVals$channel <- channel[c]
+            result[[c]] <- tolVals
+        }
+        # channel %in% 1:wavHdr$channels
+        result <- bind_rows(result)
         if(progress) {
             ix <<- ix + 1
             setTxtProgressBar(pb, value=ix)
         }
-        tolVals
+        result
     })
+    # this gets borked for multi channel,
+    # but UTC = wavToTime(wavFiles)
+    # wavLength would have to be pulled and is borko
     tol <- bind_rows(tol)
-    tol$timeToNext <- 0
-    tol$timeToNext[1:(nrow(tol)-1)] <- as.numeric(
+    timeDf <- distinct(select(tol, UTC, wavLength))
+    timeDf$timeToNext <- 0
+    timeDf$timeToNext[1:(nrow(timeDf)-1)] <- as.numeric(
         difftime(
-            tol$UTC[2:nrow(tol)],
-            tol$UTC[1:(nrow(tol)-1)],
+            timeDf$UTC[2:nrow(timeDf)],
+            timeDf$UTC[1:(nrow(timeDf)-1)],
             units='secs'
         )
     )
-    tol$diffBetweenLength <- tol$timeToNext - tol$wavLength
-    tol$diffBetweenLength[nrow(tol)] <- 0
+    timeDf$diffBetweenLength <- timeDf$timeToNext - timeDf$wavLength
+    timeDf$diffBetweenLength[nrow(timeDf)] <- 0
+    timeDf$wavLength <- NULL
+    tol <- left_join(tol,
+                     timeDf,
+                     by='UTC'
+    )
     if(plot) {
         tolPlot <- plotQAQCTol(tol)
         print(tolPlot)
@@ -1174,6 +1204,7 @@ plotQAQCTol <- function(x,
                         tBuffer=0,
                         dbRange=NULL,
                         freqMin=NULL,
+                        channel=NULL,
                         title=NULL) {
     x <- PAMscapes:::toLong(x)
     if(!is.null(freqMin)) {
@@ -1191,10 +1222,20 @@ plotQAQCTol <- function(x,
     brks <- seq(from=floor(dbRange[1]/10)*10,
                 to=ceiling(dbRange[2]/10)*10,
                 by=10)
+    if(!is.null(channel) &&
+       'channel' %in% names(x)) {
+        # x <- dplyr::filter(x, .data$channel %in% channel)
+        x <- x[x$channel %in% channel, ]
+    }
     g <- ggplot(x, aes(x=UTC, y=value, color=frequency)) +
         geom_line(linewidth=0.5) +
         scale_x_datetime(limits=tRange) +
         scale_y_continuous(limits=dbRange, breaks=brks)
+    if('channel' %in% names(x) &&
+       length(unique(x$channel)) > 1) {
+        g <- g +
+            facet_wrap(~.data$channel, ncol=1)
+    }
     if(!is.null(title)) {
         g <- g + ggtitle(title)
     }
@@ -1202,7 +1243,7 @@ plotQAQCTol <- function(x,
 }
 
 plotQAQCGap <- function(x, title=NULL) {
-    x <- x[c('UTC', 'file', 'diffBetweenLength', 'timeToNext')]
+    x <- distinct(x[c('UTC', 'file', 'diffBetweenLength', 'timeToNext')])
     names(x)[3:4] <- c('Wav End to Next File (s)',
                        'Time Between File Start (s)')
     x <- tidyr::pivot_longer(x, cols=c('Wav End to Next File (s)',
@@ -1234,9 +1275,9 @@ plotQAQCTV <- function(x, title=NULL) {
             battCol2 <- 'intBatt'
         }
     }
+    x <- distinct(select(x, any_of(c('UTC', 'temp', battCol1, battCol2))))
     x <- rename(x, 'Temperature (C)'='temp')
     colOrder <- c(battCol1, 'Temperature (C)', battCol2)
-    
     g <- plotScaledTimeseries(x, columns=c(battCol1, 'Temperature (C)', battCol2), color=c('darkblue', 'darkorange', 'blue'))
     g <- g + ylab('Battery (V)')
     if(!is.null(title)) {
@@ -2804,12 +2845,18 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
             plotLevels <- PAMscapes:::getOctaveLevels('ol', freqRange=range(plotData$frequency))
             plotData <- plotData[plotData$frequency %in% plotLevels$freqs, ]
             plotData$frequency <- factor(plotData$frequency, levels=appData$freqLevs)
-            ggplot(plotData, aes(x=UTC, y=value, color=frequency)) +
+            g <- ggplot(plotData, aes(x=UTC, y=value, color=frequency)) +
                 geom_line() +
                 scale_color_manual(values=scales::hue_pal()(length(appData$freqLevs)), 
                                    breaks=appData$freqLevs) +
                 scale_x_datetime(limits=tRange, expand=c(0, 0)) +
                 ggtitle(appData$project)
+            if('channel' %in% names(plotData) &&
+               length(unique(plotData$channel)) > 1) {
+                g <- g +
+                    facet_wrap(~channel, ncol=1)
+            }
+            g
         })
         # Brush - TOL ####
         output$tolBrushOut <- renderPrint({
@@ -2824,6 +2871,7 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
             plotData <- plotData[plotData$frequency %in% plotLevels$freqs, ]
             plotData$frequency <- factor(plotData$frequency, levels=appData$freqLevs)
             brushData <- PAMscapes:::toWide(brushedPoints(plotData, brush=input$tolBrush))
+            # brushDara has channel hre
             # if(nrow(brushData) > 0) {
             #     brushFreqs <- names(brushData)[PAMscapes:::whichFreqCols(brushData)]
             # } else {
@@ -2836,7 +2884,7 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
             freqVals <- paste0(input$tolFreqs, collapse=',')
             brushData$frequency <- rep(freqVals, nrow(brushData))
             brushData$comment <- rep(input$tolComment, nrow(brushData))
-            brushData
+            print(brushData, width=Inf)
         })
         observeEvent(input$tolLogIssue, {
             plotData <- PAMscapes:::toLong(appData$data)
@@ -2856,12 +2904,19 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
             # } else {
             #     brushFreqs <- NULL
             # }
+            if('channel' %in% names(brushData)) {
+                # brushChan <- unique(brushData$channel)
+                source <- paste0('TOL_CH', brushData$channel[1])
+            } else {
+                # brushChan <- NULL
+                source <- 'TOL'
+            }
             brushData <- brushData[c('UTC', 'file')]
             brushData <- brushData[brushData$UTC %in% range(brushData$UTC), ]
             freqVals <- paste0(input$tolFreqs, collapse=',')
             brushData$value <- rep(freqVals, nrow(brushData))
             brushData$projectName <- appData$project
-            brushData$source <- 'TOL'
+            brushData$source <- source
             brushData$comment <- rep(input$tolComment, nrow(brushData))
             brushData$issueChecked <- 'no'
             nowUTC <- Sys.time()
@@ -2881,7 +2936,7 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
                 text(x=1, y=1, label='No data loaded')
                 return()
             }
-            gapData <- appData$data[c('UTC', 'file', 'diffBetweenLength', 'timeToNext')]
+            gapData <- distinct(appData$data[c('UTC', 'file', 'diffBetweenLength', 'timeToNext')])
             names(gapData)[3:4] <- c('Wav End to Next File (s)',
                                      'Time Between File Start (s)')
             gapData <- tidyr::pivot_longer(gapData, cols=c('Wav End to Next File (s)',
@@ -2903,17 +2958,17 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
                 return('No data loaded')
             }
             
-            gapData <- appData$data[c('UTC', 'file', 'diffBetweenLength', 'timeToNext')]
+            gapData <- distinct(appData$data[c('UTC', 'file', 'diffBetweenLength', 'timeToNext')])
             names(gapData)[3:4] <- c('Wav End to Next File (s)',
                                      'Time Between File Start (s)')
             gapData <- tidyr::pivot_longer(gapData, cols=c('Wav End to Next File (s)',
                                                            'Time Between File Start (s)'))
             gapBrushData <- brushedPoints(gapData, brush=input$gapBrush, xvar='UTC', yvar='value')
             gapBrushData$comment <- rep(input$gapComment, nrow(gapBrushData))
-            gapBrushData
+            print(gapBrushData, width=Inf)
         })
         observeEvent(input$gapLogIssue, {
-            gapData <- appData$data[c('UTC', 'file', 'diffBetweenLength', 'timeToNext')]
+            gapData <- distinct(appData$data[c('UTC', 'file', 'diffBetweenLength', 'timeToNext')])
             names(gapData)[3:4] <- c('Wav End to Next File (s)',
                                      'Time Between File Start (s)')
             gapData <- tidyr::pivot_longer(gapData, cols=c('Wav End to Next File (s)',
@@ -2956,7 +3011,7 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
             }
             tvCols <- c('UTC', 'intBatt', 'extBatt', 'temp')
             tvCols <- tvCols[tvCols %in% names(appData$data)]
-            tvData <- appData$data[tvCols]
+            tvData <- distinct(appData$data[tvCols])
             plotQAQCTV(tvData, title=appData$project)
         })
         # Brush - TV ####
@@ -2969,12 +3024,12 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
             }
             tvCols <- c('UTC', 'file', 'intBatt', 'extBatt', 'temp')
             tvCols <- tvCols[tvCols %in% names(appData$data)]
-            tvData <- appData$data[tvCols]
+            tvData <- distinct(appData$data[tvCols])
             tvBrushData <- brushedPoints(tvData, brush=input$tvBrush, xvar='UTC', yvar='temp')
             if(nrow(tvBrushData) > 0) {
                 tvBrushData <- tvBrushData[tvBrushData$UTC %in% range(tvBrushData$UTC), ]
             }
-            tvBrushData
+            print(as_tibble(tvBrushData), width=Inf)
         })
         observeEvent(input$tvLogIssue, {
             if(is.null(appData$data)) {
@@ -2985,7 +3040,7 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
             }
             tvCols <- c('UTC', 'file', 'intBatt', 'extBatt', 'temp')
             tvCols <- tvCols[tvCols %in% names(appData$data)]
-            tvData <- appData$data[tvCols]
+            tvData <- distinct(appData$data[tvCols])
             tvBrushData <- brushedPoints(tvData, brush=input$tvBrush, xvar='UTC', yvar='temp')
             if(nrow(tvBrushData) == 0) {
                 showNotification('No data selected')
