@@ -4061,7 +4061,7 @@ vrl_to_csv <- function(vrl_file = NULL,
 }
 
 readVrlCsv <- function(x, type='TEMP', name='Temperature_C') {
-    if(grepl('^VR2W', x) && type == 'TEMP') {
+    if(grepl('^VR2W', basename(x)) && type == 'TEMP') {
         return(data.frame())
     }
     result <- read.csv(x, skip=1, header=TRUE, stringsAsFactors = FALSE)
@@ -4130,7 +4130,7 @@ readVemcoFolder <- function(dir, vdat_exe, verbose=TRUE) {
     # Make new CSV - deletes old first
     if(length(vrlFiles) == 1) {
         # these dont have temp so dont try
-        if(grepl('^VR2W', vrlFiles)) {
+        if(grepl('^VR2W', basename(vrlFiles))) {
             return(data.frame())
         }
         if(verbose) {
