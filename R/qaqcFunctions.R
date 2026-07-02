@@ -131,7 +131,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
         
         # if(grepl('[Ss]ound[Tt]rap\\s*500', x$deviceName[i]) &&
         if(!is.na(x$sensitivity[i]) &&
-           length(strsplit(x$sensitivity[i])[[1]]) == 1 &&
+           length(strsplit(x$sensitivity[i], ',')[[1]]) == 1 &&
            abs(as.numeric(x$sensitivity[i])) < 10) {
             missSens <- c(missSens, x$projectName[i])
             ix <- ix + 1
