@@ -61,7 +61,7 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             on.exit(unlink(newvdat), add=TRUE)
         }
     }
-       
+    
     x$qaqcStatus <- checkValidStatus(x$qaqcStatus)
     toRun <- x$qaqcStatus %in% c('NoQAQC', 'TimeChecked', 'ClipOnly')
     noBase <- is.na(x$qaqcBaseDir) | is.na(x$projectBaseDir)
@@ -128,8 +128,11 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
             setTxtProgressBar(pb, value=ix)
             next
         }
-        if(grepl('[Ss]ound[Tt]rap\\s*500', x$deviceName[i]) &&
-           abs(x$sensitivity[i]) < 10) {
+        
+        # if(grepl('[Ss]ound[Tt]rap\\s*500', x$deviceName[i]) &&
+        if(!is.na(x$sensitivity[i]) &&
+           length(strsplit(x$sensitivity[i])[[1]]) == 1 &&
+           abs(as.numeric(x$sensitivity[i])) < 10) {
             missSens <- c(missSens, x$projectName[i])
             ix <- ix + 1
             setTxtProgressBar(pb, value=ix)
@@ -322,14 +325,15 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
                 warning('Could not read VEMCO data from directory, VEMCO CSV file',
                         ' will not be saved for project ', thisName)
             }
-            if(!is.null(vemcoData)) {
+            if(!is.null(vemcoData) &&
+               nrow(vemcoData) > 0) {
                 vemId <- vemcoData$id[1]
                 vemcoData$id <- NULL
                 vemName <- gsub(x$deviceId[i], vemId, thisName)
                 vemTempFile <- file.path(thisTempDir, paste0(vemName, '_Filtered_VEMCO_Temp_data.csv'))
                 vemTempData <- distinct(vemcoData)
                 vemTempData <- filterTempData(vemTempData, dateCol='Time_UTC', 
-                                               start=thirdDay, end=secondLastDay)
+                                              start=thirdDay, end=secondLastDay)
                 if(nrow(vemTempData) == 0) {
                     warning('No VEMCO temperature data remaining after date filtering ',
                             'for project ', thisName)
@@ -984,13 +988,16 @@ evaluateWavFiles <- function(wavFiles,
     if(n < length(wavFiles)) {
         wavFiles <- wavFiles[1:n]
     }
+    
     # need to parse wav file times and track
     octaves <- PAMscapes:::getOctaveLevels(match.arg(octave), freqRange=freqRange)
     if(progress) {
         pb <- txtProgressBar(min=0, max=length(wavFiles), style=3)
         ix <- 0
     }
-    
+    if(is.character(sensitivity)) {
+        sensitivity <- as.numeric(strsplit(sensitivity, ',')[[1]])
+    }
     calibration <- checkCalibration(calibration)
     checkHoursApart <- markHoursApart(wavFiles, hours=minHoursApart, ignoreClipping=TRUE)
     maxTries <- 3
@@ -1063,6 +1070,14 @@ evaluateWavFiles <- function(wavFiles,
         if(is.null(channel)) {
             channel <- 1:wavHdr$channels
         }
+        if(length(sensitivity) == 1) {
+            sensitivity <- rep(sensitivity, length(channel))
+        }
+        if(length(sensitivity) != length(channel)) {
+            stop('Sensitivity must be a single value for all channels, or ',
+                 'a separate value for each channel. Improper number of values',
+                 ' provided, cannot process TOL')
+        }
         result <- vector('list', length=length(channel))
         for(c in seq_along(result)) {
             if(channel[c] > wavHdr$channels) {
@@ -1074,7 +1089,9 @@ evaluateWavFiles <- function(wavFiles,
             welch$freq <- welch$freq[-1]
             welch$spec <- welch$spec[-1]
             # apply calibration - sens only, or sens + transfer function
-            calValues <- sensitivity
+            
+            calValues <- sensitivity[c]
+            
             if(!is.null(calibration)) {
                 calValues <- calValues + 
                     signal::interp1(calibration$frequency, calibration$gain, xi=welch$freq, method='pchip')
@@ -1973,14 +1990,44 @@ nefscMondayToLog <- function(dataUpload, recPerf=NULL, qaqcSheet=NULL) {
 nefscSmartToLog <- function(secrets, loadAll=FALSE) {
     status <- readPaDataSmart(secrets, loadAll=loadAll)
     recorder <- readInsTrackSmart(secrets)
-    status <- left_join(status, recorder, by='deviceId')
+    dep <- readStDeploymentSmart(smartsheetSecrets) %>% 
+        select(projectName = Name,
+               deviceId = 'ST600 Serial Number:',
+               multiChannel = 'Is SoundTrap single channel or multi-channel?',
+               channel1 = 'Channel 1: Hydrophone Serial Number',
+               channel2 = 'Channel 3: Hydrophone Serial Number')
+    status <- left_join(status, dep, by=c('projectName', 'deviceId'),
+                        relationship='one-to-one')
+    status <- left_join(status, recorder, by='deviceId') %>% 
+        left_join(rename(recorder, ch1sens=sensitivity), by=c('channel1'='deviceId')) %>% 
+        left_join(rename(recorder, ch2sens=sensitivity), by=c('channel2'='deviceId'))
+    # status <- left_join(status, recorder, by='deviceId')
     noSens <- is.na(status$sensitivity)
     if(any(noSens)) {
         warning('\nCould not find matching sensitivity values for ', sum(noSens),
                 ' recording devices:\n', 
                 paste0(status$deviceName[noSens], collapse=', '))
     }
-    
+    isMulti <- !is.na(status$multiChannel) & status$multiChannel == 'Multiple Channels'
+    miss1 <- is.na(status$ch1sens[isMulti])
+    miss2 <- is.na(status$ch2sens[isMulti])
+    if(any(miss1 | miss2)) {
+        missHys <- unique(c(status$channel1[isMulti][miss1],
+                            status$channel2[isMulti][miss2]))
+        missDeps <- unique(c(status$projectName[isMulti][miss1],
+                             status$projectName[isMulti][miss2]))
+        warning('Could not find sensitivity for hydrophone(s) ', printN(missHys, Inf),
+                ' from deployment(s) ', printN(missDeps, Inf))
+    }
+    status$sensitivity <- as.character(status$sensitivity)
+    for(i in which(isMulti)) {
+        if(any(miss1 | miss2) &&
+           status$projectName[i] %in% missDeps) {
+            next
+        }
+        sens <- -1*abs(as.numeric(status$sensitivity[i])) - abs(c(status$ch1sens[i], status$ch2sens[i]))
+        status$sensitivity[i] <- paste0(sens, collapse=',')
+    }
     noData <- tolower(status$dataExtracted) %in% c(NA, 'not applicable')
     noData[!is.na(status$usableStart) & !is.na(status$usableEnd)] <- FALSE
     noStart <- !noData & is.na(status$usableStart)
@@ -2096,6 +2143,22 @@ readSmartSecrets <- function(x) {
     })
     text <- unlist(text, recursive=FALSE)
     text
+}
+
+readStDeploymentSmart <- function(secrets=NULL, token, id='8633482340525964') {
+    if(!is.null(secrets)) {
+        secrets <- readSmartSecrets(secrets)
+        token <- secrets$smart_key
+        # id <- secrets$st_deployment_id
+    }
+    header <- add_headers(Authorization = paste0('Bearer ', token))
+    base <- 'https://api.smartsheetgov.com/2.0/sheets'
+    apiData <- GET(url=paste0(base, '/', id), config=header)
+    data <- smartToDf(apiData)
+    # data <- data %>%
+    #     filter(Status == 'Recovered')
+    data[['ST600 Serial Number:']] <- gsub('\\*', '', data[['ST600 Serial Number:']])
+    data
 }
 
 smartToDf <- function(x) {
@@ -2284,6 +2347,7 @@ readQLog <- function(x) {
         data[[d]] <- gsub('\\\\', '/', data[[d]])
     }
     data$deviceId <- as.character(data$deviceId)
+    data$sensitivity <- as.character(data$sensitivity)
     data <- checkValidStatus(data)
     data
 }
@@ -3997,6 +4061,9 @@ vrl_to_csv <- function(vrl_file = NULL,
 }
 
 readVrlCsv <- function(x, type='TEMP', name='Temperature_C') {
+    if(grepl('^VR2W', x) && type == 'TEMP') {
+        return(data.frame())
+    }
     result <- read.csv(x, skip=1, header=TRUE, stringsAsFactors = FALSE)
     typeColumn <- which(names(result) == 'RECORD.TYPE')
     if(length(typeColumn) == 0) {
@@ -4048,6 +4115,10 @@ readVemcoFolder <- function(dir, vdat_exe, verbose=TRUE) {
     # try seeing if theres just 1 CSV and it is correct (not null read)
     if(length(csvFiles) == 1) {
         result <- suppressWarnings(readVrlCsv(csvFiles))
+        if(!is.null(result) &&
+           nrow(result) == 0) {
+            return(result)
+        }
         if(!is.null(result)) {
             vemId <- gsub(' ', '_', basename(csvFiles))
             vemId <- strsplit(vemId, '_')[[1]][2]
@@ -4058,6 +4129,10 @@ readVemcoFolder <- function(dir, vdat_exe, verbose=TRUE) {
     }
     # Make new CSV - deletes old first
     if(length(vrlFiles) == 1) {
+        # these dont have temp so dont try
+        if(grepl('^VR2W', vrlFiles)) {
+            return(data.frame())
+        }
         if(verbose) {
             cat('Converting VRL to CSV...\n')
         }
