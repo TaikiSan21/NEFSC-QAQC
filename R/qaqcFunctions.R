@@ -2908,6 +2908,7 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
             tRange <- range(plotData$UTC)
             plotLevels <- PAMscapes:::getOctaveLevels('ol', freqRange=range(plotData$frequency))
             plotData <- plotData[plotData$frequency %in% plotLevels$freqs, ]
+            plotData <- plotData[!is.na(plotData$value), ]
             plotData$frequency <- factor(plotData$frequency, levels=appData$freqLevs)
             g <- ggplot(plotData, aes(x=UTC, y=value, color=frequency)) +
                 geom_line() +
@@ -2933,6 +2934,7 @@ runQAQCReview <- function(data, issue=NULL, freqLims=c(30, Inf)) {
             }
             plotLevels <- PAMscapes:::getOctaveLevels('ol', freqRange=range(plotData$frequency))
             plotData <- plotData[plotData$frequency %in% plotLevels$freqs, ]
+            plotData <- plotData[!is.na(plotData$value), ]
             plotData$frequency <- factor(plotData$frequency, levels=appData$freqLevs)
             brushData <- PAMscapes:::toWide(brushedPoints(plotData, brush=input$tolBrush))
             # brushDara has channel hre
