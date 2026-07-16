@@ -1326,7 +1326,6 @@ wavToTime <- function(x) {
                 if(is.na(posix)) next
                 millis <- as.numeric(substr(date, 17, 19)) / 1e3
                 if(!is.na(posix)) {
-                    # FOUNDFORMAT <<- f
                     break
                 }
             },
@@ -1336,7 +1335,6 @@ wavToTime <- function(x) {
                 if(is.na(posix)) next
                 millis <- as.numeric(substr(date, 16, 18)) / 1e3
                 if(!is.na(posix)) {
-                    # FOUNDFORMAT <<- f
                     break
                 }
             },
@@ -1345,7 +1343,6 @@ wavToTime <- function(x) {
                 posix <- as.POSIXct(date, format = '%y%m%d%H%M%S', tz='UTC')
                 millis <- 0
                 if(!is.na(posix)) {
-                    # FOUNDFORMAT <<- f
                     break
                 }
             },
@@ -1354,7 +1351,6 @@ wavToTime <- function(x) {
                 posix <- as.POSIXct(date, format = '%Y%m%d_%H%M%S', tz='UTC')
                 millis <- 0
                 if(!is.na(posix)) {
-                    # FOUNDFORMAT <<- f
                     break
                 }
             },
@@ -1363,7 +1359,6 @@ wavToTime <- function(x) {
                 posix <- as.POSIXct(date, format = '%Y%m%d-%H%M%S', tz='UTC')
                 millis <- 0
                 if(!is.na(posix)) {
-                    # FOUNDFORMAT <<- f
                     break
                 }
             },
@@ -1372,7 +1367,6 @@ wavToTime <- function(x) {
                 posix <- as.POSIXct(date, format = '%y%m%d-%H%M%S', tz='UTC')
                 millis <- 0
                 if(!is.na(posix)) {
-                    # FOUNDFORMAT <<- f
                     break
                 }
             },
@@ -1382,7 +1376,6 @@ wavToTime <- function(x) {
                 posix <- as.POSIXct(date, format='%Y%m%dT%H%M%SZ', tz='UTC')
                 millis <- 0
                 if(!is.na(posix)) {
-                    FOUNDFORMAT <<- f
                     break
                 }
             }
