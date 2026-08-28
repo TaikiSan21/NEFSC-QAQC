@@ -188,8 +188,14 @@ processQAQCLog <- function(x, tolWindow=c(60, 120), nSpectrograms=0, rerun=TRUE,
         hasDeployments <- !is.na(x$deploymentDate[i]) && !is.na(x$recoveryDate[i])
         if(hasDeployments) {
             deploymentDate <- as.Date(x$deploymentDate[i], format = "%Y-%m-%d")
+            if(is.na(deploymentDate)) {
+                deploymentDate <- as.Date(x$deploymentDate[i], format = "%m/%d/%Y")
+            }
             thirdDay <- deploymentDate + 2 # to allow of logger acclimating
             recoveryDate <-  as.Date(x$recoveryDate[i], format = "%Y-%m-%d")
+            if(is.na(recoveryDate)) {
+                recoveryDate <- as.Date(x$recoveryDate[i], format = "%m/%d/%Y")
+            }
             secondLastDay <- recoveryDate - 1
         }
         hasVemco <- !is.na(x$teleDir[i]) && 
