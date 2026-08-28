@@ -542,6 +542,11 @@ evaluateDeployment <- function(dir,
     }
     logFiles <- allFiles[isLog]
     wavTimes <- wavToTime(wavFiles)
+    if(anyNA(wavTimes)) {
+        warning('Could not parse times from ', sum(is.na(wavTimes)), 
+        ' wav files (', printN(basename(wavFiles[is.na(wavTimes)])), 
+        '), check files for posible typos')
+    }
     if(isTRUE(doClipping) &&
        is.null(timeRange)) {
         warning('Cannot clip files without "timeRange" values', immediate.=TRUE)
