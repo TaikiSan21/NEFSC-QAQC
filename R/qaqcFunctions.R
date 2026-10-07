@@ -1515,7 +1515,7 @@ stFileToPosix <- function(x) {
 }
 
 # levels controls how far down we can go
-mapProjectDir <- function(project, dir, levels=4, maxSubs=100, verbose=TRUE) {
+mapProjectDir <- function(project, dir, levels=4, maxSubs=2000, verbose=TRUE) {
     if(is.null(project) || length(project) == 0) {
         character(0)
     }
