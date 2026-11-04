@@ -1550,9 +1550,19 @@ mapProjectDir <- function(project, dir, levels=4, maxSubs=2000, verbose=TRUE) {
                'PARKS_AUSTRALIA' %in% subBase) {
                 return('PARKS_AUSTRALIA')
             }
+            # check e.g. grepl(NEFSC_GOM, NEFSC_GOM_202412)
             hasSub <- sapply(subBase, function(y) grepl(y, x))
             if(any(hasSub)) {
                 return(subBase[hasSub][1])
+            }
+            # ost organized by NRS09
+            isOst <- grepl('^NRS[0-9]+$', subBase)
+            if(any(isOst) &&
+               grepl('_NRS[0-9]+$', x)) {
+                matchNrs <- grepl(subBase, x)
+                if(any(matchNrs)) {
+                    return(subBase[matchNrs])
+                }
             }
             NA
         })
@@ -4173,4 +4183,76 @@ filterTempData <- function(x, dateCol, format='%Y-%m-%d', start, end) {
     x <- filter(x, DATEFILTER >= start, DATEFILTER <= end)
     x$DATEFILTER <- NULL
     x
+}
+
+rerunOneTemperature <- function(x, ix=NULL, dir=NULL, type=c('soundtrap', 'vemco'), 
+                                vdat=file.path('Z:/CODE_LIBRARY/R/QAQC','vdat.exe')) {
+    if(nrow(x) > 1) {
+        if(is.null(ix)) stop('no')
+        if(is.character(ix)) {
+            ix <- which(x$projectName == ix)
+        }
+        x <- x[ix, ]
+    }
+    type <- match.arg(type)
+    #
+    deploymentDate <- as.Date(x$deploymentDate, format = "%Y-%m-%d")
+    if(is.na(deploymentDate)) {
+        deploymentDate <- as.Date(x$deploymentDate, format = "%m/%d/%Y")
+    }
+    thirdDay <- deploymentDate + 2 # to allow of logger acclimating
+    recoveryDate <-  as.Date(x$recoveryDate, format = "%Y-%m-%d")
+    if(is.na(recoveryDate)) {
+        recoveryDate <- as.Date(x$recoveryDate, format = "%m/%d/%Y")
+    }
+    secondLastDay <- recoveryDate - 1
+    #
+    # deploymentDate <- as.Date(x$deploymentDate, format = "%Y-%m-%d")
+    # thirdDay <- deploymentDate + 2 # to allow of logger acclimating
+    # recoveryDate <-  as.Date(x$recoveryDate, format = "%Y-%m-%d")
+    # secondLastDay <- recoveryDate - 1
+    if(is.na(thirdDay) | is.na(secondLastDay)) {
+        stop('NA days')
+    }
+    thisName <- paste0(x$projectName, '_', x$deviceId)
+    thisTempDir <- file.path(x$tempBaseDir, x$tempDir)
+    switch(type,
+           'soundtrap' = {
+               if(is.null(dir)) {
+                   dir <- file.path(x$projectBaseDir, x$projectDir)
+               }
+               logFiles <- list.files(dir, pattern='xml$', recursive=TRUE)
+               data <- processSoundtrapLogs(logFiles)
+               data <- distinct(rename(data, 'UTC' = 'fileTime')[c('UTC', 'temp')])
+               names(data) <- c('Datetime_UTC', 'Internal_temp_C')
+               data$Datetime_UTC <- format(data$Datetime_UTC, format='%m-%d-%Y_%H:%M:%S')
+               stTempFile <- file.path(thisTempDir, paste0(thisName, '_ST_Internal_temp.csv'))
+               write.csv(data, file=stTempFile, row.names=FALSE)
+               filtTempFile <- file.path(thisTempDir, paste0(thisName, '_Filtered_ST_Temp_data.csv'))
+               data <- filterTempData(data, 
+                                      dateCol='Datetime_UTC',
+                                      format='%m-%d-%Y',
+                                      start=thirdDay, end=secondLastDay)
+               write.csv(data, file=filtTempFile, row.names=FALSE)
+           },
+           'vemco' = {
+               if(is.null(dir)) {
+                   dir <- file.path(x$teleBaseDir, x$teleDir)
+               }
+               data <- readVemcoFolder(dir, vdat_exe=vdat)
+               if(is.null(data)) {
+                   stop('no vemco data')
+               }
+               vemId <- data$id[1]
+               data$id <- NULL
+               vemName <- gsub(x$deviceId, vemId, thisName)
+               vemTempFile <- file.path(thisTempDir, paste0(vemName, '_Filtered_VEMCO_Temp_data.csv'))
+               data <- distinct(data)
+               data <- filterTempData(data, dateCol='Time_UTC', 
+                                      start=thirdDay, end=secondLastDay)
+               data$Time_UTC <- format(data$Time_UTC, format='%Y-%m-%d %H:%M:%S')
+               write.csv(data, file=vemTempFile, row.names=FALSE)
+           }
+    )
+    data
 }
